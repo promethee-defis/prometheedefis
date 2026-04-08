@@ -399,9 +399,6 @@ def build_master_list(items, current_idx: int, status: str) -> str:
 # ---------------------------------------------------
 # STYLE
 # ---------------------------------------------------
-st.markdown(
-    """
-<style>
 @import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&display=swap');
 
 html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stMarkdownContainer"] {
