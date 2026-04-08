@@ -764,10 +764,52 @@ p, label, div, span {
 .stTextArea textarea,
 .stSelectbox div[data-baseweb="select"] > div,
 .stNumberInput input {
-    background: rgba(255,255,255,0.9) !important;
+    background: rgba(255,255,255,0.95) !important;
     border-radius: 12px !important;
     color: #1D1D1D !important;
     font-family: 'Lato', sans-serif !important;
+    border: 1px solid rgba(167, 132, 99, 0.22) !important;
+}
+
+.stSelectbox div[data-baseweb="select"] span,
+.stSelectbox div[data-baseweb="select"] div {
+    color: #1D1D1D !important;
+}
+
+/* Menu déroulant selectbox */
+div[data-baseweb="popover"] {
+    background: #FFFFFF !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(167, 132, 99, 0.18) !important;
+    box-shadow: 0 12px 28px rgba(30, 20, 10, 0.10) !important;
+}
+
+div[data-baseweb="popover"] ul,
+div[data-baseweb="popover"] [role="listbox"] {
+    background: #FFFFFF !important;
+}
+
+div[data-baseweb="popover"] [role="option"] {
+    background: #FFFFFF !important;
+    color: #1D1D1D !important;
+}
+
+div[data-baseweb="popover"] [role="option"] * {
+    color: #1D1D1D !important;
+}
+
+div[data-baseweb="popover"] [role="option"]:hover {
+    background: #F5EFE8 !important;
+    color: #1D1D1D !important;
+}
+
+div[data-baseweb="popover"] [role="option"][aria-selected="true"] {
+    background: #EFE5DA !important;
+    color: #1D1D1D !important;
+}
+
+div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
+    color: #1D1D1D !important;
 }
 
 .stTabs [data-baseweb="tab"] {
@@ -829,6 +871,408 @@ p, label, div, span {
         font-size: 0.86rem;
     }
 }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------
+# UI
+# ---------------------------------------------------
+def show_header():
+    logo_data_uri = get_logo_data_uri()
+
+    logo_html = ""
+    if logo_data_uri is not None:
+        logo_html = (
+            '<div class="hero-logo-band">'
+            f'<img src="{logo_data_uri}" class="hero-logo-img" alt="Logo">'
+            '</div>'
+        )
+
+    header_html = (
+        '<div class="hero-wrap">'
+        f'{logo_html}'
+        '<div class="hero-kicker">PROMÉTHÉE</div>'
+        '<div class="hero-title">Défis</div>'
+        '<div class="hero-subtitle">Servir par le jeu</div>'
+        '<div class="hero-line"></div>'
+        '</div>'
+    )
+
+    st.markdown(header_html, unsafe_allow_html=True)
+
+
+def render_current_challenge(profile: dict, current_item, progress, items, completed_count: int):
+    current_category = get_stage_category(items, int(progress["challenge_index"]))
+    collar_label = COLLAR_LABELS[current_category]
+    collar_bg = COLORS[current_category]
+    collar_text = CATEGORY_TEXT_COLORS[current_category]
+
+    profile_html = (
+        '<div class="panel-box">'
+        '<div class="panel-title">Profil</div>'
+        f'<div class="panel-value">{html_text(profile["name"])}</div>'
+        f'<div class="subtle-text">Jokers restants : {int(profile["jokers"])}</div>'
+        f'<div class="subtle-text">Défis achevés : {completed_count}</div>'
+        f'<div class="collar-chip" style="background:{collar_bg}; color:{collar_text};">{html_text(collar_label)}</div>'
+        '</div>'
+    )
+
+    c_profile, c_current, c_done, c_joker = st.columns([2.2, 4.5, 1.4, 1.4], gap="small")
+
+    with c_profile:
+        st.markdown(profile_html, unsafe_allow_html=True)
+        if st.button("Se déconnecter", use_container_width=True):
+            st.session_state.logged_profile_slug = None
+            st.rerun()
+
+    if current_item is None:
+        current_html = (
+            '<div class="current-card">'
+            '<div class="current-card-title">Parcours terminé</div>'
+            '<div class="current-card-sub">Tous les défis visibles sont franchis.</div>'
+            '<div class="status-chip">Terminé</div>'
+            '</div>'
+        )
+        with c_current:
+            st.markdown(current_html, unsafe_allow_html=True)
+        with c_done:
+            st.empty()
+        with c_joker:
+            st.empty()
+        return
+
+    category = current_item["category"]
+    chip_bg = COLORS[category]
+    chip_text = CATEGORY_TEXT_COLORS[category]
+    status_label = STATUS_LABELS.get(progress["status"], "À faire")
+
+    current_html = (
+        '<div class="current-card">'
+        '<div class="current-card-top">'
+        f'<div class="current-category-chip" style="background:{chip_bg}; color:{chip_text};">{html_text(category)}</div>'
+        '<div class="current-card-title">Défi en cours</div>'
+        '</div>'
+        f'<div class="current-card-sub">Défi {int(progress["challenge_index"]) + 1} sur {len(items)}</div>'
+        f'<div class="current-card-text">{html_multiline(current_item["text"])}</div>'
+        f'<div class="status-chip">Statut : {html_text(status_label)}</div>'
+        '</div>'
+    )
+
+    with c_current:
+        st.markdown(current_html, unsafe_allow_html=True)
+
+    with c_done:
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
+        if progress["status"] in ["todo", "redo"]:
+            if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True):
+                set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
+                st.rerun()
+        else:
+            st.empty()
+
+    with c_joker:
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
+        if progress["status"] in ["todo", "redo"]:
+            disabled = int(profile["jokers"]) <= 0
+            if st.button("✦ Joker", key=f"joker_{profile['slug']}", use_container_width=True, disabled=disabled):
+                update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
+                set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
+                st.rerun()
+        else:
+            st.empty()
+
+
+def render_master_list(items, progress):
+    title_html = (
+        '<div class="challenge-shell">'
+        '<div class="list-title">Parcours complet</div>'
+        f'{build_master_list(items, int(progress["challenge_index"]), progress["status"])}'
+        '</div>'
+    )
+    st.markdown(title_html, unsafe_allow_html=True)
+
+
+def render_user_area():
+    st.subheader("Espace personnel")
+
+    profiles = get_profiles()
+    if not profiles:
+        st.warning("Aucun profil.")
+        return
+
+    profiles_map = {p["slug"]: p for p in profiles}
+
+    if (
+        st.session_state.logged_profile_slug is not None
+        and st.session_state.logged_profile_slug not in profiles_map
+    ):
+        st.session_state.logged_profile_slug = None
+
+    if st.session_state.logged_profile_slug is None:
+        pseudo = st.text_input("Pseudo")
+        pin = st.text_input("Code PIN", type="password")
+
+        if st.button("Entrer", use_container_width=True):
+            profile = find_profile_by_login_input(pseudo, profiles)
+            if profile is not None and pin == profile["pin"]:
+                st.session_state.logged_profile_slug = profile["slug"]
+                st.rerun()
+            else:
+                st.error("Identifiants incorrects.")
+        return
+
+    profile = profiles_map[st.session_state.logged_profile_slug]
+    current_item, progress, items = current_challenge(profile["slug"])
+    completed_count = get_completed_count(profile["slug"])
+
+    render_current_challenge(profile, current_item, progress, items, completed_count)
+    st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+    render_master_list(items, progress)
+
+
+def render_admin_area():
+    st.subheader("Espace admin")
+
+    if not st.session_state.admin_ok:
+        password = st.text_input("Mot de passe admin", type="password")
+        if st.button("Connexion admin", use_container_width=True):
+            if password == ADMIN_PASSWORD:
+                st.session_state.admin_ok = True
+                st.rerun()
+            else:
+                st.error("Mot de passe incorrect.")
+        return
+
+    top1, _ = st.columns([1, 4])
+    with top1:
+        if st.button("Quitter", use_container_width=True):
+            st.session_state.admin_ok = False
+            st.rerun()
+
+    tab1, tab2, tab3 = st.tabs(["Validations", "Défis", "Profils"])
+
+    with tab1:
+        profiles = get_profiles()
+        profiles_map = {p["slug"]: p for p in profiles}
+        all_challenges = get_challenges()
+
+        pending_items = []
+        for profile in profiles:
+            global_state = get_global_state(profile["slug"])
+            idx = int(global_state["challenge_index"])
+            if global_state["status"] == "pending" and idx < len(all_challenges):
+                current_item = all_challenges[idx]
+                pending_items.append(
+                    {
+                        "profile_slug": profile["slug"],
+                        "profile_name": profile["name"],
+                        "category": current_item["category"],
+                        "challenge_index": idx,
+                        "text": current_item["text"],
+                    }
+                )
+
+        summary_html = (
+            '<div class="panel-box">'
+            '<div class="panel-title">En attente</div>'
+            f'<div class="panel-value">{len(pending_items)}</div>'
+            '</div>'
+        )
+        st.markdown(summary_html, unsafe_allow_html=True)
+
+        if not pending_items:
+            st.info("Aucun défi en attente.")
+        else:
+            profile_names = sorted(list({item["profile_name"] for item in pending_items}))
+            filter_profile = st.selectbox("Filtrer par profil", ["Tous"] + profile_names)
+            filter_category = st.selectbox("Filtrer par catégorie", ["Toutes"] + CATEGORIES)
+
+            for item in pending_items:
+                if filter_profile != "Tous" and item["profile_name"] != filter_profile:
+                    continue
+                if filter_category != "Toutes" and item["category"] != filter_category:
+                    continue
+
+                row_html = (
+                    '<div class="compact-row">'
+                    f'<div class="compact-top">{html_text(item["profile_name"])} • {html_text(item["category"])}</div>'
+                    f'<div class="compact-main">{html_text(item["text"])}</div>'
+                    '</div>'
+                )
+                st.markdown(row_html, unsafe_allow_html=True)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button(
+                        "Valider",
+                        key=f"approve_{item['profile_slug']}",
+                        use_container_width=True,
+                    ):
+                        completed_count = get_completed_count(item["profile_slug"]) + 1
+                        set_completed_count(item["profile_slug"], completed_count)
+                        set_global_state(
+                            item["profile_slug"],
+                            item["challenge_index"] + 1,
+                            "todo",
+                        )
+
+                        if completed_count % 10 == 0:
+                            current_jokers = int(profiles_map[item["profile_slug"]]["jokers"])
+                            update_jokers(item["profile_slug"], current_jokers + 1)
+
+                        st.rerun()
+
+                with c2:
+                    if st.button(
+                        "À refaire",
+                        key=f"redo_{item['profile_slug']}",
+                        use_container_width=True,
+                    ):
+                        set_global_state(
+                            item["profile_slug"],
+                            item["challenge_index"],
+                            "redo",
+                        )
+                        st.rerun()
+
+    with tab2:
+        category = st.selectbox("Catégorie", CATEGORIES, key="admin_category")
+        items = get_challenges(category)
+
+        count_html = (
+            '<div class="panel-box">'
+            '<div class="panel-title">Nombre de défis</div>'
+            f'<div class="panel-value">{len(items)}</div>'
+            '</div>'
+        )
+        st.markdown(count_html, unsafe_allow_html=True)
+
+        st.markdown("### Ajouter un défi")
+        new_challenge = st.text_area("Texte", key=f"new_{category}", height=120)
+        if st.button("Ajouter", key=f"add_{category}", use_container_width=True):
+            if new_challenge.strip():
+                add_challenge(category, new_challenge)
+                st.rerun()
+            else:
+                st.error("Le texte est vide.")
+
+        st.markdown("### Modifier un défi existant")
+
+        if not items:
+            st.info("Aucun défi dans cette catégorie.")
+        else:
+            selected_id = st.selectbox(
+                "Défi",
+                options=[item["id"] for item in items],
+                format_func=lambda challenge_id: next(
+                    f"{i + 1}. {short_text(item['text'], 80)}"
+                    for i, item in enumerate(items)
+                    if item["id"] == challenge_id
+                ),
+                key=f"selected_{category}",
+            )
+
+            selected_item = next(item for item in items if item["id"] == selected_id)
+
+            edited_text = st.text_area(
+                "Texte du défi",
+                value=selected_item["text"],
+                key=f"edit_text_{category}_{selected_id}",
+                height=180,
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
+                    update_challenge(selected_item["id"], edited_text)
+                    st.rerun()
+            with c2:
+                if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
+                    delete_challenge(selected_item["id"], category)
+                    st.rerun()
+
+            c3, c4 = st.columns(2)
+            with c3:
+                if st.button("Monter", key=f"up_{category}", use_container_width=True):
+                    swap_challenge_order(category, selected_item["id"], "up")
+                    st.rerun()
+            with c4:
+                if st.button("Descendre", key=f"down_{category}", use_container_width=True):
+                    swap_challenge_order(category, selected_item["id"], "down")
+                    st.rerun()
+
+    with tab3:
+        st.markdown("### Ajouter un profil")
+        with st.form("new_profile_form"):
+            new_name = st.text_input("Pseudo affiché")
+            new_pin = st.text_input("PIN")
+            new_jokers = st.number_input("Jokers", min_value=0, max_value=99, value=3, step=1)
+            submitted = st.form_submit_button("Créer")
+
+            if submitted:
+                if not new_name.strip() or not new_pin.strip():
+                    st.error("Pseudo et PIN obligatoires.")
+                else:
+                    ok, message = add_profile(new_name, new_pin, int(new_jokers))
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        st.markdown("### Modifier un profil")
+        profiles = get_profiles()
+        if not profiles:
+            st.info("Aucun profil.")
+        else:
+            selected_profile_slug = st.selectbox(
+                "Profil",
+                options=[p["slug"] for p in profiles],
+                format_func=lambda slug: next(p["name"] for p in profiles if p["slug"] == slug),
+                key="profile_to_edit",
+            )
+
+            profile = next(p for p in profiles if p["slug"] == selected_profile_slug)
+
+            updated_name = st.text_input("Pseudo", value=profile["name"], key=f"name_{selected_profile_slug}")
+            updated_pin = st.text_input("PIN", value=profile["pin"], key=f"pin_{selected_profile_slug}")
+            updated_jokers = st.number_input(
+                "Jokers",
+                min_value=0,
+                max_value=99,
+                value=int(profile["jokers"]),
+                step=1,
+                key=f"jokers_{selected_profile_slug}",
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Mettre à jour", key=f"save_profile_{selected_profile_slug}", use_container_width=True):
+                    update_profile(selected_profile_slug, updated_name, updated_pin, int(updated_jokers))
+                    st.rerun()
+
+            with c2:
+                if st.button(
+                    "Supprimer le profil",
+                    key=f"delete_profile_{selected_profile_slug}",
+                    use_container_width=True,
+                ):
+                    delete_profile(selected_profile_slug)
+                    st.rerun()
+
+
+# ---------------------------------------------------
+# APP
+# ---------------------------------------------------
+show_header()
+mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
+
+if mode == "Personnel":
+    render_user_area()
+else:
+    render_admin_area()
 </style>
 """,
     unsafe_allow_html=True,
