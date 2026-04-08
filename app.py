@@ -557,6 +557,95 @@ p, label, div, span {
     unsafe_allow_html=True,
 )
 
+.challenge-progress-list {
+    margin: 0.2rem 0 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.challenge-progress-row {
+    border-radius: 14px;
+    padding: 0.72rem 0.9rem;
+    border: 1px solid rgba(167, 132, 99, 0.14);
+    background: rgba(255,255,255,0.72);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.challenge-progress-index {
+    min-width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 900;
+    background: #F3EEE8;
+    color: #5A4A3B;
+    border: 1px solid rgba(140, 110, 80, 0.10);
+}
+
+.challenge-progress-text {
+    flex: 1;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: #2A2A2A;
+}
+
+.challenge-progress-row.done {
+    background: rgba(142, 163, 143, 0.12);
+    border-color: rgba(142, 163, 143, 0.22);
+}
+
+.challenge-progress-row.done .challenge-progress-index {
+    background: #8EA38F;
+    color: #FFFFFF;
+    border-color: #8EA38F;
+}
+
+.challenge-progress-row.current {
+    background: rgba(255,255,255,0.95);
+    border-color: rgba(167, 132, 99, 0.25);
+    box-shadow: 0 8px 20px rgba(30, 20, 10, 0.05);
+}
+
+.challenge-progress-row.current .challenge-progress-index {
+    background: #2E0F13;
+    color: #FFFFFF;
+    border-color: #2E0F13;
+}
+
+.challenge-progress-row.locked {
+    background: rgba(255,255,255,0.56);
+    border-color: rgba(167, 132, 99, 0.10);
+}
+
+.challenge-progress-row.locked .challenge-progress-text {
+    filter: blur(4px);
+    opacity: 0.8;
+    user-select: none;
+    pointer-events: none;
+}
+
+.challenge-progress-row.locked .challenge-progress-index {
+    background: #E9E2D9;
+    color: #8B7E71;
+}
+
+.challenge-progress-row.redo {
+    background: rgba(162, 74, 94, 0.08);
+    border-color: rgba(162, 74, 94, 0.18);
+}
+
+.challenge-progress-row.redo .challenge-progress-index {
+    background: #A24A5E;
+    color: #FFFFFF;
+    border-color: #A24A5E;
+}
+
 # ---------------------------------------------------
 # UI
 # ---------------------------------------------------
@@ -583,6 +672,31 @@ def show_header():
 
     st.markdown(header_html, unsafe_allow_html=True)
 
+def build_challenge_progress_list(items, current_idx: int, status: str) -> str:
+    rows = ['<div class="challenge-progress-list">']
+
+    for i, item in enumerate(items):
+        if i < current_idx:
+            row_class = "done"
+            label = f"✓ {html_text(short_text(item['text'], 85))}"
+        elif i == current_idx:
+            row_class = "redo" if status == "redo" else "current"
+            label = html_text(short_text(item["text"], 85))
+        else:
+            row_class = "locked"
+            label = "Défi verrouillé — contenu masqué"
+
+        rows.append(
+            f'''
+            <div class="challenge-progress-row {row_class}">
+                <div class="challenge-progress-index">{i + 1}</div>
+                <div class="challenge-progress-text">{label}</div>
+            </div>
+            '''
+        )
+
+    rows.append("</div>")
+    return "".join(rows)
 
 def render_category_card(profile: dict, category: str):
     challenge, progress, items = current_challenge(profile["slug"], category)
@@ -595,11 +709,17 @@ def render_category_card(profile: dict, category: str):
 
     if total == 0:
         body_html = '<div class="state-line">Aucun défi.</div>'
+        progress_list_html = ""
     elif challenge is None:
-        body_html = '<div class="state-line">Catégorie terminée.</div>'
-    else:
+        progress_list_html = build_challenge_progress_list(items, total, "todo")
         body_html = (
-            f'<div class="meta-line">Défi {idx + 1} sur {total}</div>'
+            '<div class="state-line">Catégorie terminée.</div>'
+            f'{progress_list_html}'
+        )
+    else:
+        progress_list_html = build_challenge_progress_list(items, idx, status)
+        body_html = (
+            f'{progress_list_html}'
             f'<div class="challenge-text">{html_multiline(challenge["text"])}</div>'
             f'<div class="status-chip">Statut : {html_text(STATUS_LABELS.get(status, "À faire"))}</div>'
         )
