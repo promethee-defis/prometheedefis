@@ -17,21 +17,43 @@ st.set_page_config(
 # CONFIG
 # ---------------------------------------------------
 ADMIN_PASSWORD = "Boubouboubou122"
-CATEGORIES = ["SOFT", "MOYEN", "DIFFICILE", "HARDCORE", "EXTREME"]
 
+CATEGORIES = ["SOFT", "MOYEN", "DIFFICILE", "HARDCORE", "EXTREME"]
+CATEGORY_ORDER = {name: i for i, name in enumerate(CATEGORIES)}
+
+# Couleurs inspirées des ceintures de judo
 COLORS = {
-    "SOFT": "#8EA38F",
-    "MOYEN": "#B6925E",
-    "DIFFICILE": "#B37455",
-    "HARDCORE": "#A24A5E",
-    "EXTREME": "#7B2F45",
+    "SOFT": "#F3F1EC",       # blanche
+    "MOYEN": "#D7B548",      # jaune
+    "DIFFICILE": "#D8893A",  # orange
+    "HARDCORE": "#4E8A5C",   # verte
+    "EXTREME": "#4870B7",    # bleue
+}
+
+CATEGORY_TEXT_COLORS = {
+    "SOFT": "#3F352E",
+    "MOYEN": "#FFFFFF",
+    "DIFFICILE": "#FFFFFF",
+    "HARDCORE": "#FFFFFF",
+    "EXTREME": "#FFFFFF",
+}
+
+COLLAR_LABELS = {
+    "SOFT": "Collier blanc",
+    "MOYEN": "Collier jaune",
+    "DIFFICILE": "Collier orange",
+    "HARDCORE": "Collier vert",
+    "EXTREME": "Collier bleu",
 }
 
 STATUS_LABELS = {
     "todo": "À faire",
-    "pending": "En attente",
+    "pending": "En attente de validation",
     "redo": "À refaire",
 }
+
+GLOBAL_STATE_KEY = "__GLOBAL__"
+GLOBAL_COMPLETED_KEY = "__GLOBAL_COMPLETED__"
 
 # ---------------------------------------------------
 # SUPABASE
@@ -61,7 +83,7 @@ def slugify(text: str) -> str:
 
 
 def short_text(text: str, limit: int = 90) -> str:
-    text = " ".join(text.split())
+    text = " ".join(str(text).split())
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
@@ -86,23 +108,34 @@ def get_profiles_map():
 
 
 def get_challenges(category=None):
-    query = supabase.table("challenges").select("*").order("sort_order")
+    query = supabase.table("challenges").select("*")
     if category:
-        query = query.eq("category", category)
-    data = query.execute().data
-    return data or []
+        query = query.eq("category", category).order("sort_order")
+        data = query.execute().data
+        return data or []
+
+    data = query.execute().data or []
+    data = sorted(
+        data,
+        key=lambda x: (
+            CATEGORY_ORDER.get(x["category"], 999),
+            x.get("sort_order", 999999),
+            x.get("id", 999999),
+        ),
+    )
+    return data
 
 
 def get_challenges_map():
     return {category: get_challenges(category) for category in CATEGORIES}
 
 
-def get_progress_row(profile_slug: str, category: str):
+def get_meta_progress_row(profile_slug: str, key: str, default_index: int, default_status: str):
     data = (
         supabase.table("progress")
         .select("*")
         .eq("profile_slug", profile_slug)
-        .eq("category", category)
+        .eq("category", key)
         .order("id")
         .limit(1)
         .execute()
@@ -114,20 +147,20 @@ def get_progress_row(profile_slug: str, category: str):
 
     row = {
         "profile_slug": profile_slug,
-        "category": category,
-        "challenge_index": 0,
-        "status": "todo",
+        "category": key,
+        "challenge_index": default_index,
+        "status": default_status,
     }
     supabase.table("progress").insert(row).execute()
     return row
 
 
-def set_progress(profile_slug: str, category: str, challenge_index: int, status: str):
+def set_meta_progress_row(profile_slug: str, key: str, challenge_index: int, status: str):
     existing = (
         supabase.table("progress")
         .select("id")
         .eq("profile_slug", profile_slug)
-        .eq("category", category)
+        .eq("category", key)
         .order("id")
         .limit(1)
         .execute()
@@ -151,21 +184,38 @@ def set_progress(profile_slug: str, category: str, challenge_index: int, status:
         supabase.table("progress").insert(
             {
                 "profile_slug": profile_slug,
-                "category": category,
+                "category": key,
                 "challenge_index": challenge_index,
                 "status": status,
             }
         ).execute()
 
 
+def get_global_state(profile_slug: str):
+    return get_meta_progress_row(profile_slug, GLOBAL_STATE_KEY, 0, "todo")
+
+
+def set_global_state(profile_slug: str, challenge_index: int, status: str):
+    set_meta_progress_row(profile_slug, GLOBAL_STATE_KEY, challenge_index, status)
+
+
+def get_completed_count(profile_slug: str) -> int:
+    row = get_meta_progress_row(profile_slug, GLOBAL_COMPLETED_KEY, 0, "count")
+    return int(row["challenge_index"])
+
+
+def set_completed_count(profile_slug: str, value: int):
+    set_meta_progress_row(profile_slug, GLOBAL_COMPLETED_KEY, int(value), "count")
+
+
 def update_jokers(profile_slug: str, jokers: int):
-    supabase.table("profiles").update({"jokers": jokers}).eq("slug", profile_slug).execute()
+    supabase.table("profiles").update({"jokers": int(jokers)}).eq("slug", profile_slug).execute()
 
 
-def current_challenge(profile_slug: str, category: str):
-    progress = get_progress_row(profile_slug, category)
-    items = get_challenges(category)
-    idx = progress["challenge_index"]
+def current_challenge(profile_slug: str):
+    progress = get_global_state(profile_slug)
+    items = get_challenges()
+    idx = int(progress["challenge_index"])
 
     if idx >= len(items):
         return None, progress, items
@@ -188,15 +238,8 @@ def add_profile(name: str, pin: str, jokers: int):
         }
     ).execute()
 
-    for category in CATEGORIES:
-        supabase.table("progress").insert(
-            {
-                "profile_slug": slug,
-                "category": category,
-                "challenge_index": 0,
-                "status": "todo",
-            }
-        ).execute()
+    set_global_state(slug, 0, "todo")
+    set_completed_count(slug, 0)
 
     return True, "Profil créé."
 
@@ -305,27 +348,48 @@ def get_logo_data_uri():
     return f"data:{mime_type};base64,{data}"
 
 
-def build_challenge_progress_list(items, current_idx: int, status: str) -> str:
+def get_stage_category(items, idx: int):
+    if not items:
+        return "SOFT"
+    if idx < len(items):
+        return items[idx]["category"]
+    return items[-1]["category"]
+
+
+def build_master_list(items, current_idx: int, status: str) -> str:
     rows = ['<div class="challenge-progress-list">']
 
     for i, item in enumerate(items):
+        category = item["category"]
+        badge_bg = COLORS.get(category, "#D7C6B3")
+        badge_text = CATEGORY_TEXT_COLORS.get(category, "#FFFFFF")
+
         if i < current_idx:
             row_class = "done"
-            label = f"✓ {html_text(short_text(item['text'], 85))}"
+            icon = "✓"
+            text_html = html_multiline(item["text"])
         elif i == current_idx:
-            row_class = "redo" if status == "redo" else "current"
-            label = html_text(short_text(item["text"], 85))
+            if status == "redo":
+                row_class = "redo"
+            elif status == "pending":
+                row_class = "pending"
+            else:
+                row_class = "current"
+            icon = str(i + 1)
+            text_html = html_multiline(item["text"])
         else:
             row_class = "locked"
-            label = "Défi verrouillé — contenu masqué"
+            icon = "•"
+            text_html = "Défi verrouillé — contenu masqué"
 
         rows.append(
-            f"""
-<div class="challenge-progress-row {row_class}">
-    <div class="challenge-progress-index">{i + 1}</div>
-    <div class="challenge-progress-text">{label}</div>
-</div>
-"""
+            (
+                f'<div class="challenge-progress-row {row_class}">'
+                f'<div class="challenge-progress-index">{icon}</div>'
+                f'<div class="challenge-progress-category" style="background:{badge_bg}; color:{badge_text};">{html_text(category)}</div>'
+                f'<div class="challenge-progress-text">{text_html}</div>'
+                '</div>'
+            )
         )
 
     rows.append("</div>")
@@ -352,8 +416,8 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="st
 
 .block-container {
     max-width: 940px;
-    padding-top: 1.2rem;
-    padding-bottom: 3rem;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
 }
 
 h1, h2, h3, h4, h5, h6,
@@ -364,7 +428,7 @@ p, label, div, span {
 
 .hero-wrap {
     text-align: center;
-    padding: 0.4rem 0 1.35rem 0;
+    padding: 0.2rem 0 1.2rem 0;
 }
 
 .hero-logo-band {
@@ -372,16 +436,16 @@ p, label, div, span {
     background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(255,255,255,0.88));
     border: 1px solid rgba(167, 132, 99, 0.10);
     border-radius: 22px;
-    padding: 1.15rem 0 0.95rem 0;
-    margin: 0 auto 1.1rem auto;
+    padding: 1rem 0 0.8rem 0;
+    margin: 0 auto 1rem auto;
     box-shadow: 0 10px 24px rgba(30, 20, 10, 0.03);
 }
 
 .hero-logo-img {
     display: block;
     margin: 0 auto;
-    max-width: 132px;
-    width: 132px;
+    max-width: 120px;
+    width: 120px;
     height: auto;
     mix-blend-mode: multiply;
 }
@@ -391,22 +455,22 @@ p, label, div, span {
     text-transform: uppercase;
     letter-spacing: 0.22em;
     font-size: 0.78rem;
-    margin-top: 0.25rem;
-    margin-bottom: 0.55rem;
+    margin-top: 0.15rem;
+    margin-bottom: 0.45rem;
     font-weight: 400;
 }
 
 .hero-title {
-    font-size: 2.4rem;
+    font-size: 2.25rem;
     font-weight: 900;
     color: #181818;
-    margin-bottom: 0.2rem;
+    margin-bottom: 0.15rem;
 }
 
 .hero-subtitle {
     color: #6B6258;
     font-size: 0.98rem;
-    margin-bottom: 0.8rem;
+    margin-bottom: 0.75rem;
     font-weight: 400;
 }
 
@@ -418,7 +482,7 @@ p, label, div, span {
 }
 
 .panel-box {
-    background: rgba(255,255,255,0.78);
+    background: rgba(255,255,255,0.82);
     border: 1px solid rgba(167, 132, 99, 0.18);
     border-radius: 18px;
     padding: 0.95rem 1rem;
@@ -431,7 +495,7 @@ p, label, div, span {
     text-transform: uppercase;
     letter-spacing: 0.16em;
     color: #A06F4A;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.28rem;
 }
 
 .panel-value {
@@ -445,6 +509,73 @@ p, label, div, span {
     font-size: 0.92rem;
 }
 
+.collar-chip {
+    display: inline-block;
+    margin-top: 0.55rem;
+    padding: 0.38rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 900;
+    border: 1px solid rgba(0,0,0,0.08);
+}
+
+.current-card {
+    background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(167, 132, 99, 0.18);
+    border-radius: 20px;
+    padding: 1rem;
+    box-shadow: 0 12px 28px rgba(30, 20, 10, 0.05);
+    height: 100%;
+}
+
+.current-card-top {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.current-card-title {
+    font-size: 1.02rem;
+    font-weight: 900;
+    color: #1B1B1B;
+}
+
+.current-card-sub {
+    color: #6B6258;
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.current-category-chip {
+    display: inline-block;
+    padding: 0.34rem 0.72rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.current-card-text {
+    font-size: 1.04rem;
+    line-height: 1.68;
+    color: #1E1E1E;
+}
+
+.status-chip {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.42rem 0.9rem;
+    border-radius: 999px;
+    background: #F3EEE8;
+    border: 1px solid rgba(140, 110, 80, 0.12);
+    color: #5A4A3B;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
 .challenge-shell {
     background: rgba(255,255,255,0.84);
     border: 1px solid rgba(167, 132, 99, 0.16);
@@ -454,25 +585,20 @@ p, label, div, span {
     box-shadow: 0 12px 28px rgba(30, 20, 10, 0.05);
 }
 
-.category-band {
-    width: 100%;
-    border-radius: 16px;
-    padding: 0.95rem 1rem;
-    margin: 0 0 1rem 0;
-    color: #FFFFFF;
-    font-size: 1rem;
-    font-weight: 900;
-    letter-spacing: 0.12em;
+.list-title {
+    font-size: 0.82rem;
     text-transform: uppercase;
-    text-align: center;
-    box-shadow: 0 8px 18px rgba(30, 20, 10, 0.08);
+    letter-spacing: 0.16em;
+    color: #A06F4A;
+    margin-bottom: 0.8rem;
+    font-weight: 900;
 }
 
 .challenge-progress-list {
-    margin: 0.15rem 0 1rem 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.55rem;
 }
 
 .challenge-progress-row {
@@ -481,8 +607,8 @@ p, label, div, span {
     border: 1px solid rgba(167, 132, 99, 0.14);
     background: rgba(255,255,255,0.78);
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    align-items: flex-start;
+    gap: 0.65rem;
 }
 
 .challenge-progress-index {
@@ -501,11 +627,25 @@ p, label, div, span {
     flex-shrink: 0;
 }
 
+.challenge-progress-category {
+    min-width: 88px;
+    padding: 0.34rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
 .challenge-progress-text {
     flex: 1;
-    font-size: 0.95rem;
-    line-height: 1.45;
+    font-size: 0.96rem;
+    line-height: 1.55;
     color: #2A2A2A;
+    word-break: break-word;
 }
 
 .challenge-progress-row.done {
@@ -520,7 +660,7 @@ p, label, div, span {
 }
 
 .challenge-progress-row.current {
-    background: rgba(255,255,255,0.96);
+    background: rgba(255,255,255,0.98);
     border-color: rgba(167, 132, 99, 0.24);
     box-shadow: 0 8px 20px rgba(30, 20, 10, 0.04);
 }
@@ -529,6 +669,17 @@ p, label, div, span {
     background: #2E0F13;
     color: #FFFFFF;
     border-color: #2E0F13;
+}
+
+.challenge-progress-row.pending {
+    background: rgba(216, 184, 129, 0.14);
+    border-color: rgba(216, 184, 129, 0.24);
+}
+
+.challenge-progress-row.pending .challenge-progress-index {
+    background: #B6925E;
+    color: #FFFFFF;
+    border-color: #B6925E;
 }
 
 .challenge-progress-row.locked {
@@ -559,34 +710,6 @@ p, label, div, span {
     border-color: #A24A5E;
 }
 
-.challenge-text {
-    color: #1E1E1E;
-    font-size: 1.03rem;
-    line-height: 1.72;
-    margin: 0.35rem 0 1rem 0;
-    white-space: pre-wrap;
-}
-
-.status-chip {
-    display: inline-block;
-    margin-top: 0.05rem;
-    margin-bottom: 0.25rem;
-    padding: 0.42rem 0.9rem;
-    border-radius: 999px;
-    background: #F3EEE8;
-    border: 1px solid rgba(140, 110, 80, 0.12);
-    color: #5A4A3B;
-    font-size: 0.84rem;
-    font-weight: 700;
-}
-
-.state-line {
-    color: #5A4A3B;
-    font-size: 0.98rem;
-    font-weight: 700;
-    padding: 0.2rem 0 0.1rem 0;
-}
-
 .compact-row {
     background: rgba(255,255,255,0.88);
     border: 1px solid rgba(167, 132, 99, 0.16);
@@ -614,10 +737,10 @@ p, label, div, span {
     border: 1px solid #2E0F13 !important;
     background: #2E0F13 !important;
     color: #FFFFFF !important;
-    min-height: 2.2rem;
+    min-height: 2.1rem;
     font-weight: 700;
-    font-size: 0.92rem;
-    padding: 0.35rem 0.9rem;
+    font-size: 0.9rem;
+    padding: 0.34rem 0.85rem;
     box-shadow: 0 6px 14px rgba(46, 15, 19, 0.18);
 }
 
@@ -660,6 +783,52 @@ p, label, div, span {
     color: #1D1D1D !important;
     font-family: 'Lato', sans-serif !important;
 }
+
+@media (max-width: 768px) {
+    .block-container {
+        padding-top: 0.7rem;
+        padding-bottom: 1.6rem;
+    }
+
+    .hero-logo-img {
+        max-width: 98px;
+        width: 98px;
+    }
+
+    .hero-title {
+        font-size: 1.95rem;
+    }
+
+    .hero-subtitle {
+        font-size: 0.92rem;
+    }
+
+    .current-card,
+    .panel-box,
+    .challenge-shell {
+        padding: 0.85rem;
+    }
+
+    .challenge-progress-row {
+        padding: 0.66rem 0.72rem;
+        gap: 0.55rem;
+    }
+
+    .challenge-progress-category {
+        min-width: 76px;
+        font-size: 0.68rem;
+        padding: 0.32rem 0.5rem;
+    }
+
+    .challenge-progress-text {
+        font-size: 0.92rem;
+    }
+
+    .stButton > button {
+        min-height: 2rem;
+        font-size: 0.86rem;
+    }
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -692,65 +861,95 @@ def show_header():
     st.markdown(header_html, unsafe_allow_html=True)
 
 
-def render_category_card(profile: dict, category: str):
-    challenge, progress, items = current_challenge(profile["slug"], category)
-    idx = progress["challenge_index"]
-    total = len(items)
-    status = progress["status"]
-    color = COLORS[category]
+def render_current_challenge(profile: dict, current_item, progress, items, completed_count: int):
+    current_category = get_stage_category(items, int(progress["challenge_index"]))
+    collar_label = COLLAR_LABELS[current_category]
+    collar_bg = COLORS[current_category]
+    collar_text = CATEGORY_TEXT_COLORS[current_category]
 
-    safe_category = html_text(category)
-
-    if total == 0:
-        body_html = '<div class="state-line">Aucun défi.</div>'
-    elif challenge is None:
-        progress_list_html = build_challenge_progress_list(items, total, "todo")
-        body_html = (
-            '<div class="state-line">Catégorie terminée.</div>'
-            f'{progress_list_html}'
-        )
-    else:
-        progress_list_html = build_challenge_progress_list(items, idx, status)
-        body_html = (
-            f'{progress_list_html}'
-            f'<div class="challenge-text">{html_multiline(challenge["text"])}</div>'
-            f'<div class="status-chip">Statut : {html_text(STATUS_LABELS.get(status, "À faire"))}</div>'
-        )
-
-    card_html = (
-        '<div class="challenge-shell">'
-        f'<div class="category-band" style="background:{color};">{safe_category}</div>'
-        f'{body_html}'
+    profile_html = (
+        '<div class="panel-box">'
+        '<div class="panel-title">Profil</div>'
+        f'<div class="panel-value">{html_text(profile["name"])}</div>'
+        f'<div class="subtle-text">Jokers restants : {int(profile["jokers"])}</div>'
+        f'<div class="subtle-text">Défis achevés : {completed_count}</div>'
+        f'<div class="collar-chip" style="background:{collar_bg}; color:{collar_text};">{html_text(collar_label)}</div>'
         '</div>'
     )
 
-    st.markdown(card_html, unsafe_allow_html=True)
+    c_profile, c_current, c_done, c_joker = st.columns([2.2, 4.5, 1.4, 1.4], gap="small")
 
-    if total > 0 and challenge is not None and status in ["todo", "redo"]:
-        c1, c2 = st.columns(2)
+    with c_profile:
+        st.markdown(profile_html, unsafe_allow_html=True)
+        if st.button("Se déconnecter", use_container_width=True):
+            st.session_state.logged_profile_slug = None
+            st.rerun()
 
-        with c1:
-            if st.button(
-                "✓ Fait",
-                key=f"done_{profile['slug']}_{category}",
-                use_container_width=True,
-            ):
-                set_progress(profile["slug"], category, idx, "pending")
+    if current_item is None:
+        current_html = (
+            '<div class="current-card">'
+            '<div class="current-card-title">Parcours terminé</div>'
+            '<div class="current-card-sub">Tous les défis visibles sont franchis.</div>'
+            '<div class="status-chip">Terminé</div>'
+            '</div>'
+        )
+        with c_current:
+            st.markdown(current_html, unsafe_allow_html=True)
+        with c_done:
+            st.empty()
+        with c_joker:
+            st.empty()
+        return
+
+    category = current_item["category"]
+    chip_bg = COLORS[category]
+    chip_text = CATEGORY_TEXT_COLORS[category]
+    status_label = STATUS_LABELS.get(progress["status"], "À faire")
+
+    current_html = (
+        '<div class="current-card">'
+        '<div class="current-card-top">'
+        f'<div class="current-category-chip" style="background:{chip_bg}; color:{chip_text};">{html_text(category)}</div>'
+        '<div class="current-card-title">Défi en cours</div>'
+        '</div>'
+        f'<div class="current-card-sub">Défi {int(progress["challenge_index"]) + 1} sur {len(items)}</div>'
+        f'<div class="current-card-text">{html_multiline(current_item["text"])}</div>'
+        f'<div class="status-chip">Statut : {html_text(status_label)}</div>'
+        '</div>'
+    )
+
+    with c_current:
+        st.markdown(current_html, unsafe_allow_html=True)
+
+    with c_done:
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
+        if progress["status"] in ["todo", "redo"]:
+            if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True):
+                set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
                 st.rerun()
+        else:
+            st.empty()
 
-        with c2:
-            disabled = profile["jokers"] <= 0
-            if st.button(
-                "✦ Joker",
-                key=f"joker_{profile['slug']}_{category}",
-                use_container_width=True,
-                disabled=disabled,
-            ):
-                update_jokers(profile["slug"], max(0, profile["jokers"] - 1))
-                set_progress(profile["slug"], category, idx + 1, "todo")
+    with c_joker:
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
+        if progress["status"] in ["todo", "redo"]:
+            disabled = int(profile["jokers"]) <= 0
+            if st.button("✦ Joker", key=f"joker_{profile['slug']}", use_container_width=True, disabled=disabled):
+                update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
+                set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
                 st.rerun()
+        else:
+            st.empty()
 
-    st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+
+def render_master_list(items, progress):
+    title_html = (
+        '<div class="challenge-shell">'
+        '<div class="list-title">Parcours complet</div>'
+        f'{build_master_list(items, int(progress["challenge_index"]), progress["status"])}'
+        '</div>'
+    )
+    st.markdown(title_html, unsafe_allow_html=True)
 
 
 def render_user_area():
@@ -783,26 +982,12 @@ def render_user_area():
         return
 
     profile = profiles_map[st.session_state.logged_profile_slug]
+    current_item, progress, items = current_challenge(profile["slug"])
+    completed_count = get_completed_count(profile["slug"])
 
-    panel_html = (
-        '<div class="panel-box">'
-        '<div class="panel-title">Profil</div>'
-        f'<div class="panel-value">{html_text(profile["name"])}</div>'
-        f'<div class="subtle-text">Jokers restants : {profile["jokers"]}</div>'
-        '</div>'
-    )
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown(panel_html, unsafe_allow_html=True)
-    with col2:
-        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
-        if st.button("Se déconnecter", use_container_width=True):
-            st.session_state.logged_profile_slug = None
-            st.rerun()
-
-    for category in CATEGORIES:
-        render_category_card(profile, category)
+    render_current_challenge(profile, current_item, progress, items, completed_count)
+    st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+    render_master_list(items, progress)
 
 
 def render_admin_area():
@@ -827,43 +1012,25 @@ def render_admin_area():
     tab1, tab2, tab3 = st.tabs(["Validations", "Défis", "Profils"])
 
     with tab1:
-        profiles_map = get_profiles_map()
-        challenges_map = get_challenges_map()
-
-        pending_rows = (
-            supabase.table("progress")
-            .select("*")
-            .eq("status", "pending")
-            .order("id")
-            .execute()
-            .data
-        ) or []
-
-        unique_pending = {}
-        for row in pending_rows:
-            key = (row["profile_slug"], row["category"])
-            unique_pending[key] = row
+        profiles = get_profiles()
+        profiles_map = {p["slug"]: p for p in profiles}
+        all_challenges = get_challenges()
 
         pending_items = []
-        for (_, _), row in unique_pending.items():
-            profile = profiles_map.get(row["profile_slug"])
-            if not profile:
-                continue
-
-            category = row["category"]
-            idx = row["challenge_index"]
-            items = challenges_map.get(category, [])
-            text = items[idx]["text"] if idx < len(items) else "(défi introuvable)"
-
-            pending_items.append(
-                {
-                    "profile_slug": row["profile_slug"],
-                    "profile_name": profile["name"],
-                    "category": category,
-                    "challenge_index": idx,
-                    "text": text,
-                }
-            )
+        for profile in profiles:
+            global_state = get_global_state(profile["slug"])
+            idx = int(global_state["challenge_index"])
+            if global_state["status"] == "pending" and idx < len(all_challenges):
+                current_item = all_challenges[idx]
+                pending_items.append(
+                    {
+                        "profile_slug": profile["slug"],
+                        "profile_name": profile["name"],
+                        "category": current_item["category"],
+                        "challenge_index": idx,
+                        "text": current_item["text"],
+                    }
+                )
 
         summary_html = (
             '<div class="panel-box">'
@@ -889,38 +1056,40 @@ def render_admin_area():
                 row_html = (
                     '<div class="compact-row">'
                     f'<div class="compact-top">{html_text(item["profile_name"])} • {html_text(item["category"])}</div>'
-                    f'<div class="compact-main">{html_text(short_text(item["text"], 120))}</div>'
+                    f'<div class="compact-main">{html_text(item["text"])}</div>'
                     '</div>'
                 )
                 st.markdown(row_html, unsafe_allow_html=True)
-
-                with st.expander("Voir le texte complet"):
-                    st.write(item["text"])
 
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button(
                         "Valider",
-                        key=f"approve_{item['profile_slug']}_{item['category']}",
+                        key=f"approve_{item['profile_slug']}",
                         use_container_width=True,
                     ):
-                        set_progress(
+                        completed_count = get_completed_count(item["profile_slug"]) + 1
+                        set_completed_count(item["profile_slug"], completed_count)
+                        set_global_state(
                             item["profile_slug"],
-                            item["category"],
                             item["challenge_index"] + 1,
                             "todo",
                         )
+
+                        if completed_count % 10 == 0:
+                            current_jokers = int(profiles_map[item["profile_slug"]]["jokers"])
+                            update_jokers(item["profile_slug"], current_jokers + 1)
+
                         st.rerun()
 
                 with c2:
                     if st.button(
                         "À refaire",
-                        key=f"redo_{item['profile_slug']}_{item['category']}",
+                        key=f"redo_{item['profile_slug']}",
                         use_container_width=True,
                     ):
-                        set_progress(
+                        set_global_state(
                             item["profile_slug"],
-                            item["category"],
                             item["challenge_index"],
                             "redo",
                         )
