@@ -1,6 +1,9 @@
 import base64
+import hashlib
 import html
+import hmac
 import mimetypes
+import os
 import re
 from pathlib import Path
 
@@ -16,7 +19,10 @@ st.set_page_config(
 # ---------------------------------------------------
 # CONFIG
 # ---------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
 ADMIN_PASSWORD = "Boubouboubou122"
+PIN_HASH_PREFIX = "pbkdf2_sha256"
+PIN_HASH_ITERATIONS = 200_000
 
 CATEGORIES = ["SOFT", "MOYEN", "DIFFICILE", "HARDCORE", "EXTREME"]
 CATEGORY_ORDER = {name: i for i, name in enumerate(CATEGORIES)}
@@ -55,13 +61,47 @@ STATUS_LABELS = {
 GLOBAL_STATE_KEY = "__GLOBAL__"
 GLOBAL_COMPLETED_KEY = "__GLOBAL_COMPLETED__"
 
+
+def get_config_value(name: str, default=None):
+    try:
+        value = st.secrets[name]
+    except Exception:
+        value = None
+
+    if isinstance(value, str):
+        value = value.strip()
+
+    if value not in (None, ""):
+        return value
+
+    env_value = os.getenv(name, "").strip()
+    if env_value:
+        return env_value
+
+    return default
+
+
+def require_config_value(name: str) -> str:
+    value = get_config_value(name)
+    if value:
+        return str(value)
+
+    st.error(f"Configuration manquante : {name}. Ajoute-la dans les secrets Streamlit.")
+    st.stop()
+
+
+SUPABASE_URL = require_config_value("SUPABASE_URL")
+SUPABASE_KEY = require_config_value("SUPABASE_KEY")
+
 # ---------------------------------------------------
 # SUPABASE
 # ---------------------------------------------------
-supabase = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"],
-)
+@st.cache_resource(show_spinner=False)
+def get_supabase_client(url: str, key: str):
+    return create_client(url, key)
+
+
+supabase = get_supabase_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------------------------------------------
 # SESSION
@@ -97,16 +137,13 @@ def html_multiline(text: str) -> str:
     return html.escape(str(text)).replace("\n", "<br>")
 
 
+@st.cache_data(show_spinner=False)
 def get_profiles():
     data = supabase.table("profiles").select("*").order("name").execute().data
     return data or []
 
 
-def get_profiles_map():
-    profiles = get_profiles()
-    return {p["slug"]: p for p in profiles}
-
-
+@st.cache_data(show_spinner=False)
 def get_challenges(category=None):
     query = supabase.table("challenges").select("*")
     if category:
@@ -126,8 +163,169 @@ def get_challenges(category=None):
     return data
 
 
-def get_challenges_map():
-    return {category: get_challenges(category) for category in CATEGORIES}
+def clear_reference_caches():
+    get_profiles.clear()
+    get_challenges.clear()
+
+
+def get_global_state_rows():
+    data = (
+        supabase.table("progress")
+        .select("id, profile_slug, challenge_index, status")
+        .eq("category", GLOBAL_STATE_KEY)
+        .execute()
+        .data
+    )
+    return data or []
+
+
+def get_global_challenge_index(challenge_id: int):
+    for idx, item in enumerate(get_challenges()):
+        if item["id"] == challenge_id:
+            return idx
+    return None
+
+
+def get_category_insert_index(category: str) -> int:
+    items = get_challenges()
+    category_rank = CATEGORY_ORDER.get(category, 999)
+    last_category_index = None
+
+    for idx, item in enumerate(items):
+        item_rank = CATEGORY_ORDER.get(item["category"], 999)
+
+        if item["category"] == category:
+            last_category_index = idx
+        elif last_category_index is None and item_rank > category_rank:
+            return idx
+
+    if last_category_index is not None:
+        return last_category_index + 1
+
+    return len(items)
+
+
+def apply_insertion_progress_policy(insert_index: int, previous_total: int):
+    for row in get_global_state_rows():
+        current_index = int(row["challenge_index"])
+        current_status = row.get("status", "todo")
+
+        if current_index >= previous_total:
+            new_index = current_index + 1
+            new_status = current_status
+        elif current_index >= insert_index:
+            new_index = current_index
+            new_status = "todo"
+        else:
+            continue
+
+        (
+            supabase.table("progress")
+            .update(
+                {
+                    "challenge_index": max(0, new_index),
+                    "status": new_status,
+                }
+            )
+            .eq("id", row["id"])
+            .execute()
+        )
+
+
+def adjust_global_progress_rows_after_deletion(deleted_index: int):
+    for row in get_global_state_rows():
+        current_index = int(row["challenge_index"])
+        current_status = row.get("status", "todo")
+
+        if current_index > deleted_index:
+            new_index = current_index - 1
+            new_status = current_status
+        elif current_index == deleted_index:
+            new_index = deleted_index
+            new_status = "todo"
+        else:
+            continue
+
+        (
+            supabase.table("progress")
+            .update(
+                {
+                    "challenge_index": max(0, new_index),
+                    "status": new_status,
+                }
+            )
+            .eq("id", row["id"])
+            .execute()
+        )
+
+
+def count_profiles_on_challenge(challenge_id: int) -> int:
+    challenge_index = get_global_challenge_index(challenge_id)
+    if challenge_index is None:
+        return 0
+
+    return sum(1 for row in get_global_state_rows() if int(row["challenge_index"]) == challenge_index)
+
+
+def has_active_profiles_on_indices(indices) -> bool:
+    tracked_indices = set(indices)
+    if not tracked_indices:
+        return False
+
+    return any(int(row["challenge_index"]) in tracked_indices for row in get_global_state_rows())
+
+
+def count_profiles_impacted_by_insert(insert_index: int, previous_total: int) -> int:
+    return sum(
+        1
+        for row in get_global_state_rows()
+        if insert_index <= int(row["challenge_index"]) < previous_total
+    )
+
+
+def is_hashed_pin(value: str) -> bool:
+    return str(value).startswith(f"{PIN_HASH_PREFIX}$")
+
+
+def hash_pin(pin: str, salt_hex: str | None = None, iterations: int = PIN_HASH_ITERATIONS) -> str:
+    if salt_hex is None:
+        salt_hex = os.urandom(16).hex()
+
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        pin.encode("utf-8"),
+        bytes.fromhex(salt_hex),
+        int(iterations),
+    ).hex()
+    return f"{PIN_HASH_PREFIX}${int(iterations)}${salt_hex}${digest}"
+
+
+def verify_pin(pin: str, stored_pin: str) -> bool:
+    stored_pin = str(stored_pin or "")
+
+    if not is_hashed_pin(stored_pin):
+        return hmac.compare_digest(pin, stored_pin)
+
+    try:
+        _, iterations, salt_hex, expected_digest = stored_pin.split("$", 3)
+        computed_digest = hashlib.pbkdf2_hmac(
+            "sha256",
+            pin.encode("utf-8"),
+            bytes.fromhex(salt_hex),
+            int(iterations),
+        ).hex()
+    except Exception:
+        return False
+
+    return hmac.compare_digest(computed_digest, expected_digest)
+
+
+def maybe_upgrade_profile_pin(profile_slug: str, raw_pin: str, stored_pin: str):
+    if is_hashed_pin(stored_pin):
+        return
+
+    supabase.table("profiles").update({"pin": hash_pin(raw_pin)}).eq("slug", profile_slug).execute()
+    clear_reference_caches()
 
 
 def get_meta_progress_row(profile_slug: str, key: str, default_index: int, default_status: str):
@@ -210,6 +408,7 @@ def set_completed_count(profile_slug: str, value: int):
 
 def update_jokers(profile_slug: str, jokers: int):
     supabase.table("profiles").update({"jokers": int(jokers)}).eq("slug", profile_slug).execute()
+    clear_reference_caches()
 
 
 def current_challenge(profile_slug: str):
@@ -224,70 +423,131 @@ def current_challenge(profile_slug: str):
 
 
 def add_profile(name: str, pin: str, jokers: int):
+    name = name.strip()
+    pin = pin.strip()
+
+    if not name or not pin:
+        return False, "Pseudo et PIN obligatoires."
+
     slug = slugify(name)
-    existing = supabase.table("profiles").select("slug").eq("slug", slug).execute().data or []
-    if existing:
+    profiles = get_profiles()
+
+    if any(profile["slug"] == slug for profile in profiles):
         return False, "Ce profil existe déjà."
+
+    if any(profile["name"].strip().casefold() == name.casefold() for profile in profiles):
+        return False, "Ce pseudo est déjà utilisé."
 
     supabase.table("profiles").insert(
         {
             "slug": slug,
-            "name": name.strip(),
-            "pin": pin.strip(),
+            "name": name,
+            "pin": hash_pin(pin),
             "jokers": int(jokers),
         }
     ).execute()
 
     set_global_state(slug, 0, "todo")
     set_completed_count(slug, 0)
+    clear_reference_caches()
 
     return True, "Profil créé."
 
 
 def update_profile(slug: str, name: str, pin: str, jokers: int):
+    name = name.strip()
+    pin = pin.strip()
+
+    if not name:
+        return False, "Pseudo obligatoire."
+
+    current_profile = next((profile for profile in get_profiles() if profile["slug"] == slug), None)
+    if current_profile is None:
+        return False, "Profil introuvable."
+
+    for profile in get_profiles():
+        if profile["slug"] == slug:
+            continue
+        if profile["name"].strip().casefold() == name.casefold():
+            return False, "Ce pseudo est déjà utilisé."
+
+    pin_to_store = current_profile["pin"] if not pin else hash_pin(pin)
+
     supabase.table("profiles").update(
         {
-            "name": name.strip(),
-            "pin": pin.strip(),
+            "name": name,
+            "pin": pin_to_store,
             "jokers": int(jokers),
         }
     ).eq("slug", slug).execute()
+    clear_reference_caches()
+    return True, "Profil mis à jour."
 
 
 def delete_profile(slug: str):
     supabase.table("progress").delete().eq("profile_slug", slug).execute()
     supabase.table("profiles").delete().eq("slug", slug).execute()
+    clear_reference_caches()
 
     if st.session_state.logged_profile_slug == slug:
         st.session_state.logged_profile_slug = None
 
 
 def add_challenge(category: str, text: str):
+    text = text.strip()
+    if not text:
+        return False, "Le texte est vide."
+
+    insert_index = get_category_insert_index(category)
+    previous_total = len(get_challenges())
     items = get_challenges(category)
     next_order = len(items) + 1
     supabase.table("challenges").insert(
         {
             "category": category,
             "sort_order": next_order,
-            "text": text.strip(),
+            "text": text,
         }
     ).execute()
+    apply_insertion_progress_policy(insert_index, previous_total)
+    clear_reference_caches()
+    return True, "Défi ajouté."
 
 
 def update_challenge(challenge_id: int, text: str):
-    supabase.table("challenges").update({"text": text.strip()}).eq("id", challenge_id).execute()
+    text = text.strip()
+    if not text:
+        return False, "Le texte est vide."
+
+    supabase.table("challenges").update({"text": text}).eq("id", challenge_id).execute()
+    clear_reference_caches()
+    return True, "Défi mis à jour."
 
 
 def delete_challenge(challenge_id: int, category: str):
+    global_index = get_global_challenge_index(challenge_id)
+    if global_index is None:
+        return False, "Défi introuvable."
+
     supabase.table("challenges").delete().eq("id", challenge_id).execute()
+    clear_reference_caches()
     normalize_sort_order(category)
+    adjust_global_progress_rows_after_deletion(global_index)
+    clear_reference_caches()
+    return True, "Défi supprimé."
 
 
 def normalize_sort_order(category: str):
+    clear_reference_caches()
     items = get_challenges(category)
+    has_updates = False
     for i, item in enumerate(items, start=1):
         if item["sort_order"] != i:
             supabase.table("challenges").update({"sort_order": i}).eq("id", item["id"]).execute()
+            has_updates = True
+
+    if has_updates:
+        clear_reference_caches()
 
 
 def swap_challenge_order(category: str, challenge_id: int, direction: str):
@@ -295,7 +555,7 @@ def swap_challenge_order(category: str, challenge_id: int, direction: str):
     ids = [item["id"] for item in items]
 
     if challenge_id not in ids:
-        return
+        return False, "Défi introuvable."
 
     idx = ids.index(challenge_id)
 
@@ -306,10 +566,21 @@ def swap_challenge_order(category: str, challenge_id: int, direction: str):
         a = items[idx]
         b = items[idx + 1]
     else:
-        return
+        return False, "Déplacement impossible."
+
+    swapped_global_indices = [
+        value
+        for value in [get_global_challenge_index(a["id"]), get_global_challenge_index(b["id"])]
+        if value is not None
+    ]
+
+    if has_active_profiles_on_indices(swapped_global_indices):
+        return False, "Réorganisation bloquée : un profil est actuellement positionné sur l'un de ces défis."
 
     supabase.table("challenges").update({"sort_order": b["sort_order"]}).eq("id", a["id"]).execute()
     supabase.table("challenges").update({"sort_order": a["sort_order"]}).eq("id", b["id"]).execute()
+    clear_reference_caches()
+    return True, "Ordre mis à jour."
 
 
 def find_profile_by_login_input(raw_value: str, profiles: list):
@@ -328,8 +599,9 @@ def find_profile_by_login_input(raw_value: str, profiles: list):
     return None
 
 
+@st.cache_data(show_spinner=False)
 def get_logo_data_uri():
-    possible_paths = [Path("logo.jpg"), Path("assets/logo.jpg")]
+    possible_paths = [BASE_DIR / "logo.jpg", BASE_DIR / "assets" / "logo.jpg"]
     logo_path = None
 
     for p in possible_paths:
@@ -1010,12 +1282,15 @@ def render_user_area():
         st.session_state.logged_profile_slug = None
 
     if st.session_state.logged_profile_slug is None:
-        pseudo = st.text_input("Pseudo")
-        pin = st.text_input("Code PIN", type="password")
+        with st.form("user_login_form"):
+            pseudo = st.text_input("Pseudo")
+            pin = st.text_input("Code PIN", type="password")
+            submitted = st.form_submit_button("Entrer")
 
-        if st.button("Entrer", use_container_width=True):
+        if submitted:
             profile = find_profile_by_login_input(pseudo, profiles)
-            if profile is not None and pin == profile["pin"]:
+            if profile is not None and verify_pin(pin, profile["pin"]):
+                maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
                 st.session_state.logged_profile_slug = profile["slug"]
                 st.rerun()
             else:
@@ -1035,8 +1310,11 @@ def render_admin_area():
     st.subheader("Espace admin")
 
     if not st.session_state.admin_ok:
-        password = st.text_input("Mot de passe admin", type="password")
-        if st.button("Connexion admin", use_container_width=True):
+        with st.form("admin_login_form"):
+            password = st.text_input("Mot de passe admin", type="password")
+            submitted = st.form_submit_button("Connexion admin")
+
+        if submitted:
             if password == ADMIN_PASSWORD:
                 st.session_state.admin_ok = True
                 st.rerun()
@@ -1150,12 +1428,21 @@ def render_admin_area():
 
         st.markdown("### Ajouter un défi")
         new_challenge = st.text_area("Texte", key=f"new_{category}", height=120)
+        impacted_profiles = count_profiles_impacted_by_insert(
+            get_category_insert_index(category),
+            len(get_challenges()),
+        )
+        if impacted_profiles:
+            st.info(
+                f"L'ajout dans cette catégorie renverra {impacted_profiles} profil(s) actif(s) vers ce nouveau défi."
+            )
         if st.button("Ajouter", key=f"add_{category}", use_container_width=True):
-            if new_challenge.strip():
-                add_challenge(category, new_challenge)
+            ok, message = add_challenge(category, new_challenge)
+            if ok:
+                st.success(message)
                 st.rerun()
             else:
-                st.error("Le texte est vide.")
+                st.error(message)
 
         st.markdown("### Modifier un défi existant")
 
@@ -1174,6 +1461,13 @@ def render_admin_area():
             )
 
             selected_item = next(item for item in items if item["id"] == selected_id)
+            assigned_profiles = count_profiles_on_challenge(selected_item["id"])
+
+            if assigned_profiles:
+                st.warning(
+                    f"{assigned_profiles} profil(s) sont actuellement positionnés sur ce défi. "
+                    "Supprimer reste possible, mais réordonner est bloqué pour éviter un changement silencieux de défi."
+                )
 
             edited_text = st.text_area(
                 "Texte du défi",
@@ -1185,41 +1479,54 @@ def render_admin_area():
             c1, c2 = st.columns(2)
             with c1:
                 if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
-                    update_challenge(selected_item["id"], edited_text)
-                    st.rerun()
-            with c2:
-                if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
-                    delete_challenge(selected_item["id"], category)
-                    st.rerun()
-
-            c3, c4 = st.columns(2)
-            with c3:
-                if st.button("Monter", key=f"up_{category}", use_container_width=True):
-                    swap_challenge_order(category, selected_item["id"], "up")
-                    st.rerun()
-            with c4:
-                if st.button("Descendre", key=f"down_{category}", use_container_width=True):
-                    swap_challenge_order(category, selected_item["id"], "down")
-                    st.rerun()
-
-    with tab3:
-        st.markdown("### Ajouter un profil")
-        with st.form("new_profile_form"):
-            new_name = st.text_input("Pseudo affiché")
-            new_pin = st.text_input("PIN")
-            new_jokers = st.number_input("Jokers", min_value=0, max_value=99, value=3, step=1)
-            submitted = st.form_submit_button("Créer")
-
-            if submitted:
-                if not new_name.strip() or not new_pin.strip():
-                    st.error("Pseudo et PIN obligatoires.")
-                else:
-                    ok, message = add_profile(new_name, new_pin, int(new_jokers))
+                    ok, message = update_challenge(selected_item["id"], edited_text)
                     if ok:
                         st.success(message)
                         st.rerun()
                     else:
                         st.error(message)
+            with c2:
+                if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
+                    ok, message = delete_challenge(selected_item["id"], category)
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+            c3, c4 = st.columns(2)
+            with c3:
+                if st.button("Monter", key=f"up_{category}", use_container_width=True):
+                    ok, message = swap_challenge_order(category, selected_item["id"], "up")
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+            with c4:
+                if st.button("Descendre", key=f"down_{category}", use_container_width=True):
+                    ok, message = swap_challenge_order(category, selected_item["id"], "down")
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+    with tab3:
+        st.markdown("### Ajouter un profil")
+        with st.form("new_profile_form"):
+            new_name = st.text_input("Pseudo affiché")
+            new_pin = st.text_input("PIN", type="password")
+            new_jokers = st.number_input("Jokers", min_value=0, max_value=99, value=3, step=1)
+            submitted = st.form_submit_button("Créer")
+
+            if submitted:
+                ok, message = add_profile(new_name, new_pin, int(new_jokers))
+                if ok:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
 
         st.markdown("### Modifier un profil")
         profiles = get_profiles()
@@ -1236,7 +1543,12 @@ def render_admin_area():
             profile = next(p for p in profiles if p["slug"] == selected_profile_slug)
 
             updated_name = st.text_input("Pseudo", value=profile["name"], key=f"name_{selected_profile_slug}")
-            updated_pin = st.text_input("PIN", value=profile["pin"], key=f"pin_{selected_profile_slug}")
+            updated_pin = st.text_input(
+                "Nouveau PIN (laisser vide pour garder l'actuel)",
+                value="",
+                key=f"pin_{selected_profile_slug}",
+                type="password",
+            )
             updated_jokers = st.number_input(
                 "Jokers",
                 min_value=0,
@@ -1249,8 +1561,17 @@ def render_admin_area():
             c1, c2 = st.columns(2)
             with c1:
                 if st.button("Mettre à jour", key=f"save_profile_{selected_profile_slug}", use_container_width=True):
-                    update_profile(selected_profile_slug, updated_name, updated_pin, int(updated_jokers))
-                    st.rerun()
+                    ok, message = update_profile(
+                        selected_profile_slug,
+                        updated_name,
+                        updated_pin,
+                        int(updated_jokers),
+                    )
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
 
             with c2:
                 if st.button(
