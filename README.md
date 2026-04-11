@@ -34,7 +34,7 @@ streamlit run app.py
 ## Points métier à connaître
 
 - la progression des profils est stockée comme un index global dans la liste complète des défis
-- ajouter un défi dans une catégorie renvoie les profils actifs situés après ce point vers le nouveau défi
+- ajouter un défi dans une catégorie renvoie les profils actifs concernés directement sur ce nouveau défi
 - les profils déjà terminés restent terminés quand un nouveau défi est ajouté, pour éviter de rouvrir tout le parcours
 - supprimer un défi décale automatiquement la progression pour éviter de casser le défi courant des profils
 - le réordonnancement d'un défi est bloqué si un profil est actuellement positionné sur l'un des défis à permuter

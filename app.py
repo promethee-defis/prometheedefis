@@ -214,7 +214,7 @@ def apply_insertion_progress_policy(insert_index: int, previous_total: int):
             new_index = current_index + 1
             new_status = current_status
         elif current_index >= insert_index:
-            new_index = current_index
+            new_index = insert_index
             new_status = "todo"
         else:
             continue
@@ -668,6 +668,215 @@ def build_master_list(items, current_idx: int, status: str) -> str:
     return "".join(rows)
 
 
+def get_next_joker_target(completed_count: int) -> int:
+    return ((completed_count // 10) + 1) * 10
+
+
+def get_status_label(status: str, is_completed: bool = False) -> str:
+    if is_completed:
+        return "Terminé"
+    return STATUS_LABELS.get(status, "À faire")
+
+
+def get_status_message(status: str, is_completed: bool = False) -> str:
+    if is_completed:
+        return "Parcours visible terminé."
+    if status == "pending":
+        return "Validation admin en attente."
+    if status == "redo":
+        return "Défi à refaire."
+    return "Défi prêt à être joué."
+
+
+def build_panel_html(title: str, value: str, subtitle: str = "") -> str:
+    subtitle_html = f'<div class="subtle-text">{html_text(subtitle)}</div>' if subtitle else ""
+    return (
+        '<div class="panel-box">'
+        f'<div class="panel-title">{html_text(title)}</div>'
+        f'<div class="panel-value">{html_text(value)}</div>'
+        f"{subtitle_html}"
+        '</div>'
+    )
+
+
+def build_compact_row(title: str, main_text: str, meta_text: str = "") -> str:
+    meta_html = f'<div class="compact-meta">{html_text(meta_text)}</div>' if meta_text else ""
+    return (
+        '<div class="compact-row">'
+        f'<div class="compact-top">{html_text(title)}</div>'
+        f'<div class="compact-main">{html_text(main_text)}</div>'
+        f"{meta_html}"
+        '</div>'
+    )
+
+
+def get_profile_snapshot(profile: dict, all_challenges: list) -> dict:
+    progress = get_global_state(profile["slug"])
+    completed_count = get_completed_count(profile["slug"])
+    idx = int(progress["challenge_index"])
+    is_completed = idx >= len(all_challenges)
+    current_item = None if is_completed else all_challenges[idx]
+    current_category = current_item["category"] if current_item else None
+
+    return {
+        "profile_slug": profile["slug"],
+        "profile_name": profile["name"],
+        "jokers": int(profile["jokers"]),
+        "completed_count": completed_count,
+        "progress_index": idx,
+        "progress_status": progress["status"],
+        "current_item": current_item,
+        "current_category": current_category,
+        "current_text": current_item["text"] if current_item else "Parcours terminé",
+        "challenge_label": f"{min(idx + 1, len(all_challenges))}/{len(all_challenges)}" if all_challenges else "0/0",
+        "is_completed": is_completed,
+        "status_label": get_status_label(progress["status"], is_completed=is_completed),
+        "status_message": get_status_message(progress["status"], is_completed=is_completed),
+    }
+
+
+def render_user_progress_summary(items, progress, completed_count: int):
+    total_challenges = len(items)
+    remaining_count = max(total_challenges - int(progress["challenge_index"]), 0)
+    next_joker_target = get_next_joker_target(completed_count)
+    next_joker_gap = max(next_joker_target - completed_count, 0)
+    current_category = get_stage_category(items, int(progress["challenge_index"]))
+    status_label = get_status_label(progress["status"], is_completed=int(progress["challenge_index"]) >= total_challenges)
+    status_message = get_status_message(progress["status"], is_completed=int(progress["challenge_index"]) >= total_challenges)
+
+    col1, col2, col3, col4 = st.columns(4, gap="small")
+    with col1:
+        st.markdown(
+            build_panel_html("Défis validés", str(completed_count), "Validations confirmées"),
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.markdown(
+            build_panel_html("Défis restants", str(remaining_count), "Dans le parcours visible"),
+            unsafe_allow_html=True,
+        )
+    with col3:
+        st.markdown(
+            build_panel_html(
+                "Prochain joker",
+                str(next_joker_target),
+                f"Encore {next_joker_gap} validation(s)",
+            ),
+            unsafe_allow_html=True,
+        )
+    with col4:
+        st.markdown(
+            build_panel_html("Statut", status_label, status_message),
+            unsafe_allow_html=True,
+        )
+
+    category_totals = {category: sum(1 for item in items if item["category"] == category) for category in CATEGORIES}
+    visible_categories = [category for category in CATEGORIES if category_totals[category] > 0]
+    if not visible_categories:
+        return
+
+    st.markdown("### Parcours par palier")
+    category_columns = st.columns(len(visible_categories), gap="small")
+    for column, category in zip(category_columns, visible_categories):
+        state_label = "Palier actuel" if category == current_category else "Palier disponible"
+        with column:
+            st.markdown(
+                build_panel_html(category, str(category_totals[category]), state_label),
+                unsafe_allow_html=True,
+            )
+
+
+def render_admin_overview(profiles: list, all_challenges: list):
+    snapshots = [get_profile_snapshot(profile, all_challenges) for profile in profiles]
+    pending_count = sum(1 for snapshot in snapshots if snapshot["progress_status"] == "pending" and not snapshot["is_completed"])
+    redo_count = sum(1 for snapshot in snapshots if snapshot["progress_status"] == "redo" and not snapshot["is_completed"])
+    active_count = sum(1 for snapshot in snapshots if not snapshot["is_completed"])
+    total_validated = sum(snapshot["completed_count"] for snapshot in snapshots)
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6, gap="small")
+    with col1:
+        st.markdown(build_panel_html("Profils", str(len(profiles)), "Profils actifs"), unsafe_allow_html=True)
+    with col2:
+        st.markdown(build_panel_html("En attente", str(pending_count), "Validation admin"), unsafe_allow_html=True)
+    with col3:
+        st.markdown(build_panel_html("À refaire", str(redo_count), "Blocages en cours"), unsafe_allow_html=True)
+    with col4:
+        st.markdown(build_panel_html("En parcours", str(active_count), "Hors profils terminés"), unsafe_allow_html=True)
+    with col5:
+        st.markdown(build_panel_html("Validations", str(total_validated), "Cumul validé"), unsafe_allow_html=True)
+    with col6:
+        st.markdown(build_panel_html("Défis", str(len(all_challenges)), "Banque totale"), unsafe_allow_html=True)
+
+    st.markdown("### Vue profils")
+    filter_col1, filter_col2, filter_col3 = st.columns([1.3, 1.1, 1.6], gap="small")
+    with filter_col1:
+        status_filter = st.selectbox(
+            "Statut",
+            ["Tous", "À faire", "En attente de validation", "À refaire", "Terminé"],
+            key="overview_status_filter",
+        )
+    with filter_col2:
+        category_filter = st.selectbox("Catégorie", ["Toutes"] + CATEGORIES, key="overview_category_filter")
+    with filter_col3:
+        profile_filter = st.text_input("Recherche profil", key="overview_profile_filter")
+
+    status_filter_map = {
+        "À faire": "todo",
+        "En attente de validation": "pending",
+        "À refaire": "redo",
+    }
+
+    def snapshot_matches(snapshot: dict) -> bool:
+        if status_filter == "Terminé" and not snapshot["is_completed"]:
+            return False
+        if status_filter in status_filter_map and (
+            snapshot["is_completed"] or snapshot["progress_status"] != status_filter_map[status_filter]
+        ):
+            return False
+        if status_filter == "Tous":
+            pass
+        elif status_filter not in status_filter_map and status_filter != "Terminé":
+            return False
+
+        if category_filter != "Toutes" and snapshot["current_category"] != category_filter:
+            return False
+
+        if profile_filter.strip() and profile_filter.strip().lower() not in snapshot["profile_name"].lower():
+            return False
+
+        return True
+
+    snapshots = sorted(
+        snapshots,
+        key=lambda snapshot: (
+            1 if snapshot["is_completed"] else 0,
+            {"pending": 0, "redo": 1, "todo": 2}.get(snapshot["progress_status"], 3),
+            snapshot["profile_name"].lower(),
+        ),
+    )
+
+    visible_snapshots = [snapshot for snapshot in snapshots if snapshot_matches(snapshot)]
+    if not visible_snapshots:
+        st.info("Aucun profil ne correspond aux filtres.")
+        return
+
+    for snapshot in visible_snapshots:
+        title = f'{snapshot["profile_name"]} • {snapshot["status_label"]}'
+        main_text = short_text(snapshot["current_text"], 120)
+        meta_bits = [
+            f'Position {snapshot["challenge_label"]}',
+            f'Validés {snapshot["completed_count"]}',
+            f'Jokers {snapshot["jokers"]}',
+        ]
+        if snapshot["current_category"]:
+            meta_bits.insert(1, snapshot["current_category"])
+
+        st.markdown(
+            build_compact_row(title, main_text, " • ".join(meta_bits)),
+            unsafe_allow_html=True,
+        )
+
+
 # ---------------------------------------------------
 # STYLE
 # ---------------------------------------------------
@@ -1003,6 +1212,12 @@ p, label, div, span {
     margin-bottom: 0.45rem;
 }
 
+.compact-meta {
+    font-size: 0.84rem;
+    color: #6F655C;
+    line-height: 1.45;
+}
+
 .stButton > button {
     width: 100%;
     border-radius: 999px;
@@ -1303,6 +1518,8 @@ def render_user_area():
 
     render_current_challenge(profile, current_item, progress, items, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
+    render_user_progress_summary(items, progress, completed_count)
+    st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
     render_master_list(items, progress)
 
 
@@ -1328,12 +1545,16 @@ def render_admin_area():
             st.session_state.admin_ok = False
             st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["Validations", "Défis", "Profils"])
+    profiles = get_profiles()
+    all_challenges = get_challenges()
+
+    tab1, tab2, tab3, tab4 = st.tabs(["Vue", "Validations", "Défis", "Profils"])
 
     with tab1:
-        profiles = get_profiles()
+        render_admin_overview(profiles, all_challenges)
+
+    with tab2:
         profiles_map = {p["slug"]: p for p in profiles}
-        all_challenges = get_challenges()
 
         pending_items = []
         for profile in profiles:
@@ -1351,13 +1572,10 @@ def render_admin_area():
                     }
                 )
 
-        summary_html = (
-            '<div class="panel-box">'
-            '<div class="panel-title">En attente</div>'
-            f'<div class="panel-value">{len(pending_items)}</div>'
-            '</div>'
+        st.markdown(
+            build_panel_html("En attente", str(len(pending_items)), "Défis à valider"),
+            unsafe_allow_html=True,
         )
-        st.markdown(summary_html, unsafe_allow_html=True)
 
         if not pending_items:
             st.info("Aucun défi en attente.")
@@ -1372,13 +1590,14 @@ def render_admin_area():
                 if filter_category != "Toutes" and item["category"] != filter_category:
                     continue
 
-                row_html = (
-                    '<div class="compact-row">'
-                    f'<div class="compact-top">{html_text(item["profile_name"])} • {html_text(item["category"])}</div>'
-                    f'<div class="compact-main">{html_text(item["text"])}</div>'
-                    '</div>'
+                st.markdown(
+                    build_compact_row(
+                        f'{item["profile_name"]} • {item["category"]}',
+                        short_text(item["text"], 160),
+                        f'Défi {item["challenge_index"] + 1}/{len(all_challenges)}',
+                    ),
+                    unsafe_allow_html=True,
                 )
-                st.markdown(row_html, unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -1414,23 +1633,29 @@ def render_admin_area():
                         )
                         st.rerun()
 
-    with tab2:
+    with tab3:
+        summary_columns = st.columns(len(CATEGORIES), gap="small")
+        for column, summary_category in zip(summary_columns, CATEGORIES):
+            challenge_total = len(get_challenges(summary_category))
+            with column:
+                st.markdown(
+                    build_panel_html(summary_category, str(challenge_total), "Défis disponibles"),
+                    unsafe_allow_html=True,
+                )
+
         category = st.selectbox("Catégorie", CATEGORIES, key="admin_category")
         items = get_challenges(category)
 
-        count_html = (
-            '<div class="panel-box">'
-            '<div class="panel-title">Nombre de défis</div>'
-            f'<div class="panel-value">{len(items)}</div>'
-            '</div>'
+        st.markdown(
+            build_panel_html("Nombre de défis", str(len(items)), "Dans cette catégorie"),
+            unsafe_allow_html=True,
         )
-        st.markdown(count_html, unsafe_allow_html=True)
 
         st.markdown("### Ajouter un défi")
         new_challenge = st.text_area("Texte", key=f"new_{category}", height=120)
         impacted_profiles = count_profiles_impacted_by_insert(
             get_category_insert_index(category),
-            len(get_challenges()),
+            len(all_challenges),
         )
         if impacted_profiles:
             st.info(
@@ -1449,70 +1674,85 @@ def render_admin_area():
         if not items:
             st.info("Aucun défi dans cette catégorie.")
         else:
-            selected_id = st.selectbox(
-                "Défi",
-                options=[item["id"] for item in items],
-                format_func=lambda challenge_id: next(
-                    f"{i + 1}. {short_text(item['text'], 80)}"
-                    for i, item in enumerate(items)
-                    if item["id"] == challenge_id
-                ),
-                key=f"selected_{category}",
-            )
+            search_text = st.text_input("Recherche dans la catégorie", key=f"search_{category}")
+            filtered_items = [
+                item
+                for item in items
+                if search_text.strip().lower() in item["text"].lower()
+            ]
 
-            selected_item = next(item for item in items if item["id"] == selected_id)
-            assigned_profiles = count_profiles_on_challenge(selected_item["id"])
-
-            if assigned_profiles:
-                st.warning(
-                    f"{assigned_profiles} profil(s) sont actuellement positionnés sur ce défi. "
-                    "Supprimer reste possible, mais réordonner est bloqué pour éviter un changement silencieux de défi."
+            if not filtered_items:
+                st.info("Aucun défi ne correspond à la recherche.")
+            else:
+                selected_id = st.selectbox(
+                    "Défi",
+                    options=[item["id"] for item in filtered_items],
+                    format_func=lambda challenge_id: next(
+                        f"{i + 1}. {short_text(item['text'], 80)}"
+                        for i, item in enumerate(filtered_items)
+                        if item["id"] == challenge_id
+                    ),
+                    key=f"selected_{category}",
                 )
 
-            edited_text = st.text_area(
-                "Texte du défi",
-                value=selected_item["text"],
-                key=f"edit_text_{category}_{selected_id}",
-                height=180,
-            )
+                selected_item = next(item for item in items if item["id"] == selected_id)
+                assigned_profiles = count_profiles_on_challenge(selected_item["id"])
 
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
-                    ok, message = update_challenge(selected_item["id"], edited_text)
-                    if ok:
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
-            with c2:
-                if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
-                    ok, message = delete_challenge(selected_item["id"], category)
-                    if ok:
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
+                if assigned_profiles:
+                    st.warning(
+                        f"{assigned_profiles} profil(s) sont actuellement positionnés sur ce défi. "
+                        "Supprimer reste possible, mais réordonner est bloqué pour éviter un changement silencieux de défi."
+                    )
 
-            c3, c4 = st.columns(2)
-            with c3:
-                if st.button("Monter", key=f"up_{category}", use_container_width=True):
-                    ok, message = swap_challenge_order(category, selected_item["id"], "up")
-                    if ok:
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
-            with c4:
-                if st.button("Descendre", key=f"down_{category}", use_container_width=True):
-                    ok, message = swap_challenge_order(category, selected_item["id"], "down")
-                    if ok:
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
+                edited_text = st.text_area(
+                    "Texte du défi",
+                    value=selected_item["text"],
+                    key=f"edit_text_{category}_{selected_id}",
+                    height=180,
+                )
 
-    with tab3:
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
+                        ok, message = update_challenge(selected_item["id"], edited_text)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+                with c2:
+                    if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
+                        ok, message = delete_challenge(selected_item["id"], category)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+                c3, c4 = st.columns(2)
+                with c3:
+                    if st.button("Monter", key=f"up_{category}", use_container_width=True):
+                        ok, message = swap_challenge_order(category, selected_item["id"], "up")
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+                with c4:
+                    if st.button("Descendre", key=f"down_{category}", use_container_width=True):
+                        ok, message = swap_challenge_order(category, selected_item["id"], "down")
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+    with tab4:
+        st.markdown(
+            build_panel_html("Profils", str(len(profiles)), "Gestion des accès et jokers"),
+            unsafe_allow_html=True,
+        )
+
         st.markdown("### Ajouter un profil")
         with st.form("new_profile_form"):
             new_name = st.text_input("Pseudo affiché")
@@ -1529,7 +1769,6 @@ def render_admin_area():
                     st.error(message)
 
         st.markdown("### Modifier un profil")
-        profiles = get_profiles()
         if not profiles:
             st.info("Aucun profil.")
         else:
@@ -1541,6 +1780,16 @@ def render_admin_area():
             )
 
             profile = next(p for p in profiles if p["slug"] == selected_profile_slug)
+            snapshot = get_profile_snapshot(profile, all_challenges)
+
+            st.markdown(
+                build_compact_row(
+                    f'{snapshot["profile_name"]} • {snapshot["status_label"]}',
+                    short_text(snapshot["current_text"], 140),
+                    f'Position {snapshot["challenge_label"]} • Validés {snapshot["completed_count"]} • Jokers {snapshot["jokers"]}',
+                ),
+                unsafe_allow_html=True,
+            )
 
             updated_name = st.text_input("Pseudo", value=profile["name"], key=f"name_{selected_profile_slug}")
             updated_pin = st.text_input(
