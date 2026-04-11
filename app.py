@@ -5,6 +5,7 @@ import hmac
 import mimetypes
 import os
 import re
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -60,6 +61,9 @@ STATUS_LABELS = {
 
 GLOBAL_STATE_KEY = "__GLOBAL__"
 GLOBAL_COMPLETED_KEY = "__GLOBAL_COMPLETED__"
+PROFILE_SESSION_PARAM = "ps"
+ADMIN_SESSION_PARAM = "as"
+AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 
 
 def get_config_value(name: str, default=None):
@@ -92,6 +96,7 @@ def require_config_value(name: str) -> str:
 
 SUPABASE_URL = require_config_value("SUPABASE_URL")
 SUPABASE_KEY = require_config_value("SUPABASE_KEY")
+AUTH_SECRET = str(get_config_value("AUTH_SECRET", SUPABASE_KEY))
 
 # ---------------------------------------------------
 # SUPABASE
@@ -135,6 +140,76 @@ def html_text(text: str) -> str:
 
 def html_multiline(text: str) -> str:
     return html.escape(str(text)).replace("\n", "<br>")
+
+
+def get_query_params_dict() -> dict[str, str]:
+    try:
+        return {str(k): str(v) for k, v in st.query_params.items()}
+    except Exception:
+        raw_params = st.experimental_get_query_params()
+        return {
+            str(k): str(v[-1] if isinstance(v, list) else v)
+            for k, v in raw_params.items()
+        }
+
+
+def set_query_params_dict(params: dict[str, str]):
+    cleaned = {str(k): str(v) for k, v in params.items() if v not in (None, "")}
+
+    try:
+        st.query_params.clear()
+        for key, value in cleaned.items():
+            st.query_params[key] = value
+    except Exception:
+        st.experimental_set_query_params(**cleaned)
+
+
+def set_query_param_value(name: str, value: str | None):
+    params = get_query_params_dict()
+    if value in (None, ""):
+        params.pop(name, None)
+    else:
+        params[name] = value
+    set_query_params_dict(params)
+
+
+def encode_auth_token(kind: str, subject: str, ttl_seconds: int = AUTH_TOKEN_TTL_SECONDS) -> str:
+    expires_at = int(time.time()) + int(ttl_seconds)
+    payload = f"{kind}|{subject}|{expires_at}"
+    signature = hmac.new(
+        AUTH_SECRET.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    token_bytes = f"{payload}|{signature}".encode("utf-8")
+    return base64.urlsafe_b64encode(token_bytes).decode("utf-8").rstrip("=")
+
+
+def decode_auth_token(token: str | None):
+    if not token:
+        return None
+
+    try:
+        padded = str(token) + "=" * (-len(str(token)) % 4)
+        raw_value = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+        kind, subject, expires_at_str, signature = raw_value.split("|", 3)
+        payload = f"{kind}|{subject}|{expires_at_str}"
+        expected_signature = hmac.new(
+            AUTH_SECRET.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+        if int(expires_at_str) < int(time.time()):
+            return None
+        return {
+            "kind": kind,
+            "subject": subject,
+            "expires_at": int(expires_at_str),
+        }
+    except Exception:
+        return None
 
 
 @st.cache_data(show_spinner=False)
@@ -411,6 +486,43 @@ def update_jokers(profile_slug: str, jokers: int):
     clear_reference_caches()
 
 
+def persist_profile_session(profile_slug: str):
+    set_query_param_value(PROFILE_SESSION_PARAM, encode_auth_token("profile", profile_slug))
+
+
+def clear_profile_session():
+    set_query_param_value(PROFILE_SESSION_PARAM, None)
+
+
+def persist_admin_session():
+    set_query_param_value(ADMIN_SESSION_PARAM, encode_auth_token("admin", "admin"))
+
+
+def clear_admin_session():
+    set_query_param_value(ADMIN_SESSION_PARAM, None)
+
+
+def restore_persistent_sessions():
+    profile_token = decode_auth_token(get_query_params_dict().get(PROFILE_SESSION_PARAM))
+    if profile_token and profile_token["kind"] == "profile":
+        valid_slugs = {profile["slug"] for profile in get_profiles()}
+        if profile_token["subject"] in valid_slugs:
+            st.session_state.logged_profile_slug = profile_token["subject"]
+        else:
+            clear_profile_session()
+    elif get_query_params_dict().get(PROFILE_SESSION_PARAM):
+        clear_profile_session()
+
+    admin_token = decode_auth_token(get_query_params_dict().get(ADMIN_SESSION_PARAM))
+    if admin_token and admin_token["kind"] == "admin" and admin_token["subject"] == "admin":
+        st.session_state.admin_ok = True
+    elif get_query_params_dict().get(ADMIN_SESSION_PARAM):
+        clear_admin_session()
+
+
+restore_persistent_sessions()
+
+
 def current_challenge(profile_slug: str):
     progress = get_global_state(profile_slug)
     items = get_challenges()
@@ -491,6 +603,7 @@ def delete_profile(slug: str):
 
     if st.session_state.logged_profile_slug == slug:
         st.session_state.logged_profile_slug = None
+        clear_profile_session()
 
 
 def add_challenge(category: str, text: str):
@@ -1932,6 +2045,7 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
     with logout_col:
         if st.button("Se déconnecter", use_container_width=True, type="tertiary"):
             st.session_state.logged_profile_slug = None
+            clear_profile_session()
             st.rerun()
 
     if current_item is None:
@@ -2027,6 +2141,7 @@ def render_user_area():
             if profile is not None and verify_pin(pin, profile["pin"]):
                 maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
                 st.session_state.logged_profile_slug = profile["slug"]
+                persist_profile_session(profile["slug"])
                 st.rerun()
             else:
                 st.error("Identifiants incorrects.")
@@ -2054,6 +2169,7 @@ def render_admin_area():
         if submitted:
             if password == ADMIN_PASSWORD:
                 st.session_state.admin_ok = True
+                persist_admin_session()
                 st.rerun()
             else:
                 st.error("Mot de passe incorrect.")
@@ -2064,6 +2180,7 @@ def render_admin_area():
     with top1:
         if st.button("Quitter", use_container_width=True):
             st.session_state.admin_ok = False
+            clear_admin_session()
             st.rerun()
 
     profiles = get_profiles()
