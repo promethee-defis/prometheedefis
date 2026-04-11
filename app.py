@@ -1394,6 +1394,21 @@ p, label, div, span {
     box-shadow: none !important;
 }
 
+.stButton > button[kind="primary"] * {
+    color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+}
+
+.stButton > button[kind="secondary"] * {
+    color: #2E0F13 !important;
+    fill: #2E0F13 !important;
+}
+
+.stButton > button[kind="tertiary"] * {
+    color: #6C625A !important;
+    fill: #6C625A !important;
+}
+
 .stButton > button:hover {
     transform: translateY(-1px);
 }
@@ -1689,8 +1704,7 @@ def render_user_area():
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
     render_user_progress_summary(items, progress, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-    with st.expander("Voir le parcours complet", expanded=False):
-        render_master_list(items, progress)
+    render_master_list(items, progress)
 
 
 def render_admin_area():
