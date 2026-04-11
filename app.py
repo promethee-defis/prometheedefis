@@ -737,53 +737,30 @@ def get_profile_snapshot(profile: dict, all_challenges: list) -> dict:
 
 def render_user_progress_summary(items, progress, completed_count: int):
     total_challenges = len(items)
-    remaining_count = max(total_challenges - int(progress["challenge_index"]), 0)
+    current_index = int(progress["challenge_index"])
+    completed_visible = min(current_index, total_challenges)
+    remaining_count = max(total_challenges - current_index, 0)
     next_joker_target = get_next_joker_target(completed_count)
     next_joker_gap = max(next_joker_target - completed_count, 0)
-    current_category = get_stage_category(items, int(progress["challenge_index"]))
-    status_label = get_status_label(progress["status"], is_completed=int(progress["challenge_index"]) >= total_challenges)
-    status_message = get_status_message(progress["status"], is_completed=int(progress["challenge_index"]) >= total_challenges)
-
-    col1, col2, col3, col4 = st.columns(4, gap="small")
-    with col1:
-        st.markdown(
-            build_panel_html("Défis validés", str(completed_count), "Validations confirmées"),
-            unsafe_allow_html=True,
-        )
-    with col2:
-        st.markdown(
-            build_panel_html("Défis restants", str(remaining_count), "Dans le parcours visible"),
-            unsafe_allow_html=True,
-        )
-    with col3:
-        st.markdown(
-            build_panel_html(
-                "Prochain joker",
-                str(next_joker_target),
-                f"Encore {next_joker_gap} validation(s)",
-            ),
-            unsafe_allow_html=True,
-        )
-    with col4:
-        st.markdown(
-            build_panel_html("Statut", status_label, status_message),
-            unsafe_allow_html=True,
-        )
-
-    category_totals = {category: sum(1 for item in items if item["category"] == category) for category in CATEGORIES}
-    visible_categories = [category for category in CATEGORIES if category_totals[category] > 0]
-    if not visible_categories:
-        return
-
-    st.markdown("### Parcours par palier")
-    category_columns = st.columns(len(visible_categories), gap="small")
-    for column, category in zip(category_columns, visible_categories):
-        state_label = "Palier actuel" if category == current_category else "Palier disponible"
-        with column:
-            st.markdown(
-                build_panel_html(category, str(category_totals[category]), state_label),
-                unsafe_allow_html=True,
-            )
+    progress_percent = int((completed_visible / total_challenges) * 100) if total_challenges else 0
+    summary_html = (
+        '<div class="progress-card">'
+        '<div class="progress-card-top">'
+        '<div class="progress-card-title">Progression</div>'
+        f'<div class="progress-card-value">{completed_visible} / {total_challenges} visibles</div>'
+        '</div>'
+        '<div class="progress-track">'
+        f'<div class="progress-fill" style="width:{progress_percent}%;"></div>'
+        '</div>'
+        '<div class="metric-row">'
+        f'<div class="metric-pill"><strong>{completed_count}</strong> validés</div>'
+        f'<div class="metric-pill"><strong>{remaining_count}</strong> restants</div>'
+        f'<div class="metric-pill">Prochain joker à <strong>{next_joker_target}</strong></div>'
+        f'<div class="metric-pill">Encore <strong>{next_joker_gap}</strong> validation(s)</div>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(summary_html, unsafe_allow_html=True)
 
 
 def render_admin_overview(profiles: list, all_challenges: list):
@@ -1218,33 +1195,214 @@ p, label, div, span {
     line-height: 1.45;
 }
 
+.profile-strip {
+    background: rgba(255,255,255,0.82);
+    border: 1px solid rgba(167, 132, 99, 0.14);
+    border-radius: 18px;
+    padding: 0.9rem 1rem;
+    box-shadow: 0 10px 24px rgba(30, 20, 10, 0.04);
+}
+
+.profile-strip-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    margin-bottom: 0.35rem;
+}
+
+.profile-strip-name {
+    font-size: 1.08rem;
+    font-weight: 900;
+    color: #181818;
+}
+
+.profile-strip-rank {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #A06F4A;
+    font-weight: 700;
+}
+
+.profile-strip-meta {
+    color: #655C53;
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+.focus-card {
+    background:
+        radial-gradient(circle at top right, rgba(139, 30, 63, 0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(252,248,243,0.95));
+    border: 1px solid rgba(167, 132, 99, 0.16);
+    border-radius: 26px;
+    padding: 1.25rem 1.3rem;
+    box-shadow: 0 18px 36px rgba(30, 20, 10, 0.06);
+}
+
+.focus-card.complete {
+    background:
+        radial-gradient(circle at top right, rgba(78, 138, 92, 0.10), transparent 36%),
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,252,248,0.96));
+}
+
+.focus-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+}
+
+.focus-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+}
+
+.focus-title {
+    font-size: 1.28rem;
+    font-weight: 900;
+    color: #181818;
+}
+
+.focus-position {
+    color: #6C625A;
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.focus-text {
+    font-size: 1.36rem;
+    line-height: 1.52;
+    color: #1A1A1A;
+    font-weight: 700;
+    margin-bottom: 1rem;
+}
+
+.focus-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.progress-card {
+    background: rgba(255,255,255,0.82);
+    border: 1px solid rgba(167, 132, 99, 0.14);
+    border-radius: 20px;
+    padding: 0.95rem 1rem 1rem 1rem;
+    box-shadow: 0 10px 24px rgba(30, 20, 10, 0.04);
+}
+
+.progress-card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.8rem;
+    margin-bottom: 0.7rem;
+}
+
+.progress-card-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: #A06F4A;
+    font-weight: 900;
+}
+
+.progress-card-value {
+    font-size: 0.96rem;
+    font-weight: 800;
+    color: #1A1A1A;
+}
+
+.progress-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: #EFE5DA;
+    overflow: hidden;
+    margin-bottom: 0.85rem;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #8B1E3F, #B05B75);
+}
+
+.metric-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+}
+
+.metric-pill {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid rgba(167, 132, 99, 0.16);
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    color: #4F453C;
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.metric-pill strong {
+    color: #1B1B1B;
+    font-weight: 900;
+}
+
 .stButton > button {
     width: 100%;
     border-radius: 999px;
-    border: 1px solid #2E0F13 !important;
-    background: #2E0F13 !important;
-    color: #FFFFFF !important;
-    min-height: 2.1rem;
-    font-weight: 700;
-    font-size: 0.9rem;
-    padding: 0.34rem 0.85rem;
-    box-shadow: 0 6px 14px rgba(46, 15, 19, 0.18);
+    min-height: 2.7rem;
+    font-weight: 800;
+    font-size: 0.94rem;
+    padding: 0.4rem 0.95rem;
+    transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
 }
 
 .stButton > button * {
+    fill: currentColor !important;
+}
+
+.stButton > button[kind="primary"] {
+    border: 1px solid #2E0F13 !important;
+    background: #2E0F13 !important;
     color: #FFFFFF !important;
-    fill: #FFFFFF !important;
+    min-height: 3.35rem;
+    font-size: 1.05rem;
+    box-shadow: 0 10px 22px rgba(46, 15, 19, 0.22);
+}
+
+.stButton > button[kind="secondary"] {
+    border: 1px solid rgba(46, 15, 19, 0.18) !important;
+    background: rgba(255,255,255,0.92) !important;
+    color: #2E0F13 !important;
+    box-shadow: 0 6px 14px rgba(30, 20, 10, 0.05);
+}
+
+.stButton > button[kind="tertiary"] {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: #6C625A !important;
+    min-height: 2.2rem;
+    box-shadow: none !important;
 }
 
 .stButton > button:hover {
+    transform: translateY(-1px);
+}
+
+.stButton > button[kind="primary"]:hover {
     border-color: #3A1419 !important;
     background: #3A1419 !important;
     color: #FFFFFF !important;
-}
-
-.stButton > button:hover * {
-    color: #FFFFFF !important;
-    fill: #FFFFFF !important;
+    box-shadow: 0 14px 24px rgba(46, 15, 19, 0.24);
 }
 
 .stTextInput > div > div > input,
@@ -1333,8 +1491,22 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
 
     .current-card,
     .panel-box,
-    .challenge-shell {
+    .challenge-shell,
+    .focus-card,
+    .progress-card,
+    .profile-strip {
         padding: 0.85rem;
+    }
+
+    .focus-text {
+        font-size: 1.12rem;
+    }
+
+    .progress-card-top,
+    .focus-top,
+    .profile-strip-top {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .challenge-progress-row {
@@ -1392,41 +1564,36 @@ def show_header():
 def render_current_challenge(profile: dict, current_item, progress, items, completed_count: int):
     current_category = get_stage_category(items, int(progress["challenge_index"]))
     collar_label = COLLAR_LABELS[current_category]
-    collar_bg = COLORS[current_category]
-    collar_text = CATEGORY_TEXT_COLORS[current_category]
-
     profile_html = (
-        '<div class="panel-box">'
-        '<div class="panel-title">Profil</div>'
-        f'<div class="panel-value">{html_text(profile["name"])}</div>'
-        f'<div class="subtle-text">Jokers restants : {int(profile["jokers"])}</div>'
-        f'<div class="subtle-text">Défis achevés : {completed_count}</div>'
-        f'<div class="collar-chip" style="background:{collar_bg}; color:{collar_text};">{html_text(collar_label)}</div>'
+        '<div class="profile-strip">'
+        '<div class="profile-strip-top">'
+        f'<div class="profile-strip-name">{html_text(profile["name"])}</div>'
+        f'<div class="profile-strip-rank">{html_text(collar_label)}</div>'
+        '</div>'
+        f'<div class="profile-strip-meta">Jokers restants : {int(profile["jokers"])} • Défis validés : {completed_count}</div>'
         '</div>'
     )
 
-    c_profile, c_current, c_done, c_joker = st.columns([2.2, 4.5, 1.4, 1.4], gap="small")
-
-    with c_profile:
+    meta_col, logout_col = st.columns([6, 1.4], gap="small")
+    with meta_col:
         st.markdown(profile_html, unsafe_allow_html=True)
-        if st.button("Se déconnecter", use_container_width=True):
+    with logout_col:
+        st.markdown("<div style='height:0.55rem;'></div>", unsafe_allow_html=True)
+        if st.button("Se déconnecter", use_container_width=True, type="tertiary"):
             st.session_state.logged_profile_slug = None
             st.rerun()
 
     if current_item is None:
         current_html = (
-            '<div class="current-card">'
-            '<div class="current-card-title">Parcours terminé</div>'
-            '<div class="current-card-sub">Tous les défis visibles sont franchis.</div>'
+            '<div class="focus-card complete">'
+            '<div class="focus-top">'
+            '<div class="focus-title-wrap"><div class="focus-title">Parcours terminé</div></div>'
             '<div class="status-chip">Terminé</div>'
             '</div>'
+            '<div class="focus-text">Tous les défis visibles sont franchis.</div>'
+            '</div>'
         )
-        with c_current:
-            st.markdown(current_html, unsafe_allow_html=True)
-        with c_done:
-            st.empty()
-        with c_joker:
-            st.empty()
+        st.markdown(current_html, unsafe_allow_html=True)
         return
 
     category = current_item["category"]
@@ -1435,39 +1602,41 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
     status_label = STATUS_LABELS.get(progress["status"], "À faire")
 
     current_html = (
-        '<div class="current-card">'
-        '<div class="current-card-top">'
+        '<div class="focus-card">'
+        '<div class="focus-top">'
+        '<div class="focus-title-wrap">'
         f'<div class="current-category-chip" style="background:{chip_bg}; color:{chip_text};">{html_text(category)}</div>'
-        '<div class="current-card-title">Défi en cours</div>'
+        '<div class="focus-title">Défi du moment</div>'
         '</div>'
-        f'<div class="current-card-sub">Défi {int(progress["challenge_index"]) + 1} sur {len(items)}</div>'
-        f'<div class="current-card-text">{html_multiline(current_item["text"])}</div>'
+        f'<div class="focus-position">Défi {int(progress["challenge_index"]) + 1} sur {len(items)}</div>'
+        '</div>'
+        f'<div class="focus-text">{html_multiline(current_item["text"])}</div>'
+        '<div class="focus-footer">'
         f'<div class="status-chip">Statut : {html_text(status_label)}</div>'
+        '</div>'
         '</div>'
     )
 
-    with c_current:
-        st.markdown(current_html, unsafe_allow_html=True)
+    st.markdown(current_html, unsafe_allow_html=True)
 
-    with c_done:
-        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
-        if progress["status"] in ["todo", "redo"]:
-            if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True):
+    if progress["status"] in ["todo", "redo"]:
+        c_done, c_joker = st.columns(2, gap="small")
+        with c_done:
+            if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True, type="primary"):
                 set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
                 st.rerun()
-        else:
-            st.empty()
-
-    with c_joker:
-        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
-        if progress["status"] in ["todo", "redo"]:
+        with c_joker:
             disabled = int(profile["jokers"]) <= 0
-            if st.button("✦ Joker", key=f"joker_{profile['slug']}", use_container_width=True, disabled=disabled):
+            if st.button(
+                "✦ Utiliser un joker",
+                key=f"joker_{profile['slug']}",
+                use_container_width=True,
+                disabled=disabled,
+                type="secondary",
+            ):
                 update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
                 set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
                 st.rerun()
-        else:
-            st.empty()
 
 
 def render_master_list(items, progress):
@@ -1520,7 +1689,8 @@ def render_user_area():
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
     render_user_progress_summary(items, progress, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-    render_master_list(items, progress)
+    with st.expander("Voir le parcours complet", expanded=False):
+        render_master_list(items, progress)
 
 
 def render_admin_area():
