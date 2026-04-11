@@ -897,7 +897,7 @@ footer {
 }
 
 .block-container {
-    max-width: 1080px;
+    max-width: 1140px;
     margin: 0 auto;
     padding-top: 0.45rem;
     padding-bottom: 2.2rem;
@@ -1572,7 +1572,7 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
 }
 
 div[data-testid="stRadio"] {
-    margin-bottom: 1.3rem;
+    margin-bottom: 1rem;
 }
 
 div[data-testid="stRadio"] label[data-baseweb="radio"] {
@@ -1585,9 +1585,36 @@ div[data-testid="stRadio"] label[data-baseweb="radio"] {
 div[data-testid="stForm"] {
     background: var(--surface-strong);
     border: 1px solid var(--line);
+    border-top: 2px solid rgba(74, 24, 34, 0.22);
     border-radius: 20px;
     padding: 1.15rem 1.15rem 0.45rem 1.15rem;
     box-shadow: 0 20px 36px rgba(54, 25, 31, 0.035);
+}
+
+div[data-testid="stFormSubmitButton"] > button,
+.stForm [data-testid="stFormSubmitButton"] > button {
+    width: 100% !important;
+    border: 1px solid var(--accent) !important;
+    background: var(--accent) !important;
+    color: #FFFFFF !important;
+    border-radius: 14px !important;
+    min-height: 3.1rem !important;
+    font-weight: 800 !important;
+    font-size: 1rem !important;
+    box-shadow: 0 14px 24px rgba(46, 15, 19, 0.18) !important;
+}
+
+div[data-testid="stFormSubmitButton"] > button *,
+.stForm [data-testid="stFormSubmitButton"] > button * {
+    color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+}
+
+div[data-testid="stFormSubmitButton"] > button:hover,
+.stForm [data-testid="stFormSubmitButton"] > button:hover {
+    border-color: #341116 !important;
+    background: #341116 !important;
+    box-shadow: 0 18px 28px rgba(46, 15, 19, 0.2) !important;
 }
 
 .stTextInput > label,
@@ -1876,7 +1903,7 @@ def render_user_area():
         st.session_state.logged_profile_slug = None
 
     if st.session_state.logged_profile_slug is None:
-        _, form_col, _ = st.columns([1.05, 1.65, 1.05], gap="large")
+        _, form_col, _ = st.columns([0.82, 2.05, 0.82], gap="large")
         with form_col:
             st.subheader("Espace personnel")
             with st.form("user_login_form"):
@@ -1909,7 +1936,7 @@ def render_user_area():
 
 def render_admin_area():
     if not st.session_state.admin_ok:
-        _, form_col, _ = st.columns([1.05, 1.65, 1.05], gap="large")
+        _, form_col, _ = st.columns([0.82, 2.05, 0.82], gap="large")
         with form_col:
             st.subheader("Espace admin")
             with st.form("admin_login_form"):
@@ -2223,7 +2250,7 @@ def render_admin_area():
 # APP
 # ---------------------------------------------------
 show_header()
-_, mode_col, _ = st.columns([1.05, 1.2, 1.05], gap="large")
+_, mode_col, _ = st.columns([0.9, 1.35, 0.9], gap="large")
 with mode_col:
     mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
 
