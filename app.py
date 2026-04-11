@@ -864,12 +864,14 @@ st.markdown(
 
 html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stMarkdownContainer"] {
     font-family: 'Lato', sans-serif !important;
+    -webkit-text-size-adjust: 100%;
 }
 
 .stApp {
     background:
         radial-gradient(circle at top, rgba(140, 38, 65, 0.06), transparent 28%),
         linear-gradient(180deg, #FFFFFF 0%, #FBF8F4 100%);
+    overflow-x: hidden;
 }
 
 .block-container {
@@ -1513,6 +1515,7 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     div[data-testid="column"] {
         width: 100% !important;
         flex: 1 1 100% !important;
+        min-width: 0 !important;
     }
 
     .stRadio div[role="radiogroup"] {
@@ -1592,6 +1595,15 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
 
     .metric-pill {
         flex: 1 1 calc(50% - 0.45rem);
+    }
+
+    .profile-strip-meta,
+    .compact-meta,
+    .compact-main,
+    .focus-text,
+    .panel-value,
+    .subtle-text {
+        word-break: break-word;
     }
 
     .stButton > button {
