@@ -1487,6 +1487,11 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     color: #1C1C1C !important;
 }
 
+.stRadio div[role="radiogroup"] {
+    gap: 0.85rem;
+    flex-wrap: wrap;
+}
+
 .stRadio label {
     color: #1D1D1D !important;
     font-family: 'Lato', sans-serif !important;
@@ -1496,6 +1501,30 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     .block-container {
         padding-top: 0.7rem;
         padding-bottom: 1.6rem;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
+
+    div[data-testid="stHorizontalBlock"] {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    div[data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+
+    .stRadio div[role="radiogroup"] {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.55rem;
+    }
+
+    div[data-baseweb="tab-list"] {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        overflow-x: visible;
     }
 
     .hero-logo-img {
@@ -1509,6 +1538,11 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
 
     .hero-subtitle {
         font-size: 0.92rem;
+    }
+
+    .hero-logo-band {
+        min-height: 132px;
+        padding: 0.95rem 0.8rem 0.85rem 0.8rem;
     }
 
     .current-card,
@@ -1532,23 +1566,47 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     }
 
     .challenge-progress-row {
+        flex-wrap: wrap;
         padding: 0.66rem 0.72rem;
         gap: 0.55rem;
     }
 
     .challenge-progress-category {
-        min-width: 76px;
+        min-width: 0;
         font-size: 0.68rem;
         padding: 0.32rem 0.5rem;
     }
 
     .challenge-progress-text {
+        width: 100%;
         font-size: 0.92rem;
     }
 
+    .focus-position {
+        font-size: 0.84rem;
+    }
+
+    .metric-row {
+        gap: 0.45rem;
+    }
+
+    .metric-pill {
+        flex: 1 1 calc(50% - 0.45rem);
+    }
+
     .stButton > button {
-        min-height: 2rem;
-        font-size: 0.86rem;
+        min-height: 2.85rem;
+        font-size: 0.92rem;
+    }
+
+    .stButton > button[kind="primary"],
+    .stButton > button[kind="secondary"] {
+        min-height: 3.1rem;
+        font-size: 1rem;
+    }
+
+    .stForm .stButton > button {
+        width: 100%;
     }
 }
 </style>
@@ -1691,7 +1749,7 @@ def render_user_area():
         with st.form("user_login_form"):
             pseudo = st.text_input("Pseudo")
             pin = st.text_input("Code PIN", type="password")
-            submitted = st.form_submit_button("Entrer")
+            submitted = st.form_submit_button("Entrer", use_container_width=True)
 
         if submitted:
             profile = find_profile_by_login_input(pseudo, profiles)
@@ -1720,7 +1778,7 @@ def render_admin_area():
     if not st.session_state.admin_ok:
         with st.form("admin_login_form"):
             password = st.text_input("Mot de passe admin", type="password")
-            submitted = st.form_submit_button("Connexion admin")
+            submitted = st.form_submit_button("Connexion admin", use_container_width=True)
 
         if submitted:
             if password == ADMIN_PASSWORD:
@@ -1949,7 +2007,7 @@ def render_admin_area():
             new_name = st.text_input("Pseudo affiché")
             new_pin = st.text_input("PIN", type="password")
             new_jokers = st.number_input("Jokers", min_value=0, max_value=99, value=3, step=1)
-            submitted = st.form_submit_button("Créer")
+            submitted = st.form_submit_button("Créer", use_container_width=True)
 
             if submitted:
                 ok, message = add_profile(new_name, new_pin, int(new_jokers))
