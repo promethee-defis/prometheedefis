@@ -1577,6 +1577,9 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
 }
 
 div[data-testid="stRadio"] {
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
     margin-bottom: 1rem;
 }
 
@@ -1592,8 +1595,20 @@ div[data-testid="stForm"] {
     border: 1px solid var(--line);
     border-top: 2px solid rgba(74, 24, 34, 0.22);
     border-radius: 20px;
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
     padding: 1.15rem 1.15rem 0.45rem 1.15rem;
     box-shadow: 0 20px 36px rgba(54, 25, 31, 0.035);
+}
+
+.auth-title {
+    font-family: 'Outfit', sans-serif !important;
+    font-size: 1.08rem;
+    font-weight: 800;
+    color: var(--ink);
+    max-width: 620px;
+    margin: 0 auto 0.8rem auto;
 }
 
 div[data-testid="stFormSubmitButton"] > button,
@@ -1828,8 +1843,19 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     }
 
     div[data-testid="stForm"] {
+        max-width: none;
         padding: 0.82rem 0.82rem 0.2rem 0.82rem;
         border-radius: 16px;
+    }
+
+    div[data-testid="stRadio"] {
+        max-width: none;
+    }
+
+    .auth-title {
+        max-width: none;
+        font-size: 0.98rem;
+        margin-bottom: 0.62rem;
     }
 
     div[data-testid="stFormSubmitButton"] > button,
@@ -1977,23 +2003,20 @@ def render_user_area():
         st.session_state.logged_profile_slug = None
 
     if st.session_state.logged_profile_slug is None:
-        _, form_col, _ = st.columns([0.82, 2.05, 0.82], gap="large")
-        with form_col:
-            st.subheader("Espace personnel")
-            with st.form("user_login_form"):
-                pseudo = st.text_input("Pseudo")
-                pin = st.text_input("Code PIN", type="password")
-                submitted = st.form_submit_button("Entrer", use_container_width=True, type="primary")
+        st.markdown('<div class="auth-title">Espace personnel</div>', unsafe_allow_html=True)
+        with st.form("user_login_form"):
+            pseudo = st.text_input("Pseudo")
+            pin = st.text_input("Code PIN", type="password")
+            submitted = st.form_submit_button("Entrer", use_container_width=True, type="primary")
 
         if submitted:
-            with form_col:
-                profile = find_profile_by_login_input(pseudo, profiles)
-                if profile is not None and verify_pin(pin, profile["pin"]):
-                    maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
-                    st.session_state.logged_profile_slug = profile["slug"]
-                    st.rerun()
-                else:
-                    st.error("Identifiants incorrects.")
+            profile = find_profile_by_login_input(pseudo, profiles)
+            if profile is not None and verify_pin(pin, profile["pin"]):
+                maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
+                st.session_state.logged_profile_slug = profile["slug"]
+                st.rerun()
+            else:
+                st.error("Identifiants incorrects.")
         return
 
     st.subheader("Espace personnel")
@@ -2010,20 +2033,17 @@ def render_user_area():
 
 def render_admin_area():
     if not st.session_state.admin_ok:
-        _, form_col, _ = st.columns([0.82, 2.05, 0.82], gap="large")
-        with form_col:
-            st.subheader("Espace admin")
-            with st.form("admin_login_form"):
-                password = st.text_input("Mot de passe admin", type="password")
-                submitted = st.form_submit_button("Connexion admin", use_container_width=True, type="primary")
+        st.markdown('<div class="auth-title">Espace admin</div>', unsafe_allow_html=True)
+        with st.form("admin_login_form"):
+            password = st.text_input("Mot de passe admin", type="password")
+            submitted = st.form_submit_button("Connexion admin", use_container_width=True, type="primary")
 
         if submitted:
-            with form_col:
-                if password == ADMIN_PASSWORD:
-                    st.session_state.admin_ok = True
-                    st.rerun()
-                else:
-                    st.error("Mot de passe incorrect.")
+            if password == ADMIN_PASSWORD:
+                st.session_state.admin_ok = True
+                st.rerun()
+            else:
+                st.error("Mot de passe incorrect.")
         return
 
     st.subheader("Espace admin")
@@ -2324,9 +2344,7 @@ def render_admin_area():
 # APP
 # ---------------------------------------------------
 show_header()
-_, mode_col, _ = st.columns([0.9, 1.35, 0.9], gap="large")
-with mode_col:
-    mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
+mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
 
 if mode == "Personnel":
     render_user_area()
