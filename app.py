@@ -601,7 +601,12 @@ def find_profile_by_login_input(raw_value: str, profiles: list):
 
 @st.cache_data(show_spinner=False)
 def get_logo_data_uri():
-    possible_paths = [BASE_DIR / "logo.jpg", BASE_DIR / "assets" / "logo.jpg"]
+    possible_paths = [
+        BASE_DIR / "logo.png",
+        BASE_DIR / "logo.jpg",
+        BASE_DIR / "assets" / "logo.png",
+        BASE_DIR / "assets" / "logo.jpg",
+    ]
     logo_path = None
 
     for p in possible_paths:
@@ -942,7 +947,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     height: auto;
     object-fit: contain;
     object-position: center center;
-    mix-blend-mode: multiply;
+    mix-blend-mode: normal;
 }
 
 .hero-kicker {
@@ -1640,15 +1645,19 @@ div[data-testid="stFormSubmitButton"] > button:hover,
 
 @media (max-width: 768px) {
     .block-container {
-        padding-top: 0.7rem;
-        padding-bottom: 1.6rem;
-        padding-left: 0.8rem;
-        padding-right: 0.8rem;
+        padding-top: 0.45rem;
+        padding-bottom: 1.25rem;
+        padding-left: 0.72rem;
+        padding-right: 0.72rem;
+    }
+
+    .hero-wrap {
+        padding: 0.05rem 0 0.85rem 0;
     }
 
     div[data-testid="stHorizontalBlock"] {
         flex-direction: column;
-        gap: 0.75rem;
+        gap: 0.62rem;
     }
 
     div[data-testid="column"] {
@@ -1658,9 +1667,11 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     }
 
     .stRadio div[role="radiogroup"] {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.55rem;
+        flex-direction: row;
+        align-items: stretch;
+        justify-content: center;
+        gap: 0.45rem;
+        width: 100%;
     }
 
     div[data-baseweb="tab-list"] {
@@ -1669,22 +1680,38 @@ div[data-testid="stFormSubmitButton"] > button:hover,
         overflow-x: visible;
     }
 
+    div[data-testid="stRadio"] label[data-baseweb="radio"] {
+        flex: 1 1 0;
+        justify-content: center;
+        text-align: center;
+        padding: 0.42rem 0.7rem;
+    }
+
     .hero-logo-img {
-        max-width: min(100%, 170px);
-        max-height: 82px;
+        max-width: min(100%, 148px);
+        max-height: 68px;
     }
 
     .hero-title {
-        font-size: 2.05rem;
+        font-size: 1.86rem;
     }
 
     .hero-subtitle {
-        font-size: 0.92rem;
+        font-size: 0.86rem;
+    }
+
+    .hero-kicker {
+        font-size: 0.66rem;
+        letter-spacing: 0.28em;
+    }
+
+    .hero-line {
+        width: 154px;
     }
 
     .hero-logo-band {
-        min-height: 82px;
-        padding: 0.15rem 0.8rem 0.1rem 0.8rem;
+        min-height: 62px;
+        padding: 0.05rem 0.8rem 0.02rem 0.8rem;
     }
 
     .current-card,
@@ -1693,11 +1720,26 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     .focus-card,
     .progress-card,
     .profile-strip {
-        padding: 0.85rem;
+        padding: 0.8rem;
+        border-radius: 16px;
+    }
+
+    .panel-box {
+        padding: 0.8rem 0.82rem 0.85rem 0.82rem;
+    }
+
+    .profile-strip {
+        padding: 0.78rem 0.84rem;
     }
 
     .focus-text {
-        font-size: 1.18rem;
+        font-size: 1.08rem;
+        line-height: 1.28;
+        max-width: none;
+    }
+
+    .focus-title {
+        font-size: 0.98rem;
     }
 
     .progress-card-top,
@@ -1707,33 +1749,57 @@ div[data-testid="stFormSubmitButton"] > button:hover,
         align-items: flex-start;
     }
 
+    .focus-top,
+    .profile-strip-top {
+        gap: 0.45rem;
+    }
+
     .challenge-progress-row {
         flex-wrap: wrap;
-        padding: 0.7rem 0.74rem;
-        gap: 0.55rem;
+        padding: 0.62rem 0.66rem;
+        gap: 0.48rem;
+    }
+
+    .challenge-progress-index {
+        min-width: 30px;
+        width: 30px;
+        height: 30px;
+        font-size: 0.76rem;
     }
 
     .challenge-progress-category {
         min-width: 0;
-        font-size: 0.68rem;
-        padding: 0.32rem 0.48rem;
+        font-size: 0.64rem;
+        padding: 0.28rem 0.42rem;
     }
 
     .challenge-progress-text {
         width: 100%;
-        font-size: 0.92rem;
+        font-size: 0.88rem;
+        line-height: 1.5;
     }
 
     .focus-position {
-        font-size: 0.84rem;
+        font-size: 0.72rem;
+    }
+
+    .status-chip,
+    .current-category-chip,
+    .metric-pill {
+        font-size: 0.74rem;
+    }
+
+    .status-chip {
+        padding: 0.38rem 0.7rem;
     }
 
     .metric-row {
-        gap: 0.45rem;
+        gap: 0.4rem;
     }
 
     .metric-pill {
-        flex: 1 1 calc(50% - 0.45rem);
+        flex: 1 1 100%;
+        padding: 0.48rem 0.68rem;
     }
 
     .profile-strip-meta,
@@ -1746,14 +1812,15 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     }
 
     .stButton > button {
-        min-height: 2.95rem;
-        font-size: 0.92rem;
+        min-height: 2.82rem;
+        font-size: 0.9rem;
+        border-radius: 14px;
     }
 
     .stButton > button[kind="primary"],
     .stButton > button[kind="secondary"] {
-        min-height: 3.15rem;
-        font-size: 1rem;
+        min-height: 3rem;
+        font-size: 0.96rem;
     }
 
     .metric-pill {
@@ -1761,7 +1828,14 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     }
 
     div[data-testid="stForm"] {
-        padding: 0.9rem 0.9rem 0.25rem 0.9rem;
+        padding: 0.82rem 0.82rem 0.2rem 0.82rem;
+        border-radius: 16px;
+    }
+
+    div[data-testid="stFormSubmitButton"] > button,
+    .stForm [data-testid="stFormSubmitButton"] > button {
+        min-height: 2.95rem !important;
+        font-size: 0.96rem !important;
     }
 
     .stForm .stButton > button {
