@@ -1590,6 +1590,17 @@ div[data-testid="stRadio"] label[data-baseweb="radio"] {
     padding: 0.46rem 0.9rem 0.46rem 0.72rem;
 }
 
+div[data-testid="stRadio"] label[data-baseweb="radio"] > div {
+    gap: 0.38rem;
+}
+
+div[data-testid="stRadio"] label[data-baseweb="radio"] p,
+div[data-testid="stRadio"] label[data-baseweb="radio"] span {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+}
+
 div[data-testid="stForm"] {
     background: var(--surface-strong);
     border: 1px solid var(--line);
@@ -1696,10 +1707,12 @@ div[data-testid="stFormSubmitButton"] > button:hover,
     }
 
     div[data-testid="stRadio"] label[data-baseweb="radio"] {
-        flex: 1 1 0;
+        flex: 0 0 auto;
         justify-content: center;
         text-align: center;
         padding: 0.42rem 0.7rem;
+        min-width: fit-content;
+        font-size: 0.94rem;
     }
 
     .hero-logo-img {
