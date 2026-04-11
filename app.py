@@ -906,7 +906,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
 
 .hero-wrap {
     text-align: center;
-    padding: 0.2rem 0 1.6rem 0;
+    padding: 0.1rem 0 1.15rem 0;
 }
 
 .hero-logo-band {
@@ -917,9 +917,9 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 0.65rem 1rem 0.45rem 1rem;
-    min-height: 128px;
-    margin: 0 auto 1rem auto;
+    padding: 0.35rem 1rem 0.3rem 1rem;
+    min-height: 98px;
+    margin: 0 auto 0.8rem auto;
     box-shadow: none;
     overflow: visible;
 }
@@ -928,11 +928,12 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     display: block;
     margin: 0 auto;
     width: auto;
-    max-width: min(100%, 228px);
-    max-height: 108px;
+    max-width: min(100%, 214px);
+    max-height: 94px;
     height: auto;
     object-fit: contain;
     object-position: center center;
+    mix-blend-mode: multiply;
 }
 
 .hero-kicker {
@@ -941,28 +942,28 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     letter-spacing: 0.34em;
     font-size: 0.74rem;
     margin-top: 0.15rem;
-    margin-bottom: 0.42rem;
+    margin-bottom: 0.3rem;
     font-weight: 800;
 }
 
 .hero-title {
-    font-size: 2.95rem;
+    font-size: 2.82rem;
     font-weight: 900;
     color: var(--ink);
     letter-spacing: -0.05em;
     line-height: 0.96;
-    margin-bottom: 0.2rem;
+    margin-bottom: 0.15rem;
 }
 
 .hero-subtitle {
     color: var(--ink-soft);
     font-size: 0.98rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     font-weight: 500;
 }
 
 .hero-line {
-    width: 248px;
+    width: 224px;
     height: 1px;
     margin: 0 auto;
     background: linear-gradient(90deg, transparent, rgba(74, 24, 34, 0.68), transparent);
@@ -1241,8 +1242,8 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     background: var(--surface-strong);
     border: 1px solid var(--line);
     border-radius: 20px;
-    padding: 0.92rem 1.08rem;
-    box-shadow: 0 18px 32px rgba(54, 25, 31, 0.03);
+    padding: 0.88rem 1.02rem;
+    box-shadow: 0 14px 26px rgba(54, 25, 31, 0.025);
 }
 
 .profile-strip-top {
@@ -1250,7 +1251,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     align-items: center;
     justify-content: space-between;
     gap: 0.8rem;
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.25rem;
 }
 
 .profile-strip-name {
@@ -1276,10 +1277,10 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
 .focus-card {
     background: var(--surface-strong);
     border: 1px solid var(--line-strong);
-    border-top: 3px solid var(--accent);
+    border-top: 2px solid rgba(74, 24, 34, 0.48);
     border-radius: 24px;
-    padding: 1.35rem 1.45rem 1.25rem 1.45rem;
-    box-shadow: 0 24px 42px rgba(54, 25, 31, 0.05);
+    padding: 1.22rem 1.38rem 1.18rem 1.38rem;
+    box-shadow: 0 20px 38px rgba(54, 25, 31, 0.045);
 }
 
 .focus-card.complete {
@@ -1303,7 +1304,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
 }
 
 .focus-title {
-    font-size: 1.12rem;
+    font-size: 1.06rem;
     font-weight: 800;
     color: var(--ink);
     letter-spacing: -0.02em;
@@ -1319,13 +1320,13 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
 
 .focus-text {
     font-family: 'Outfit', sans-serif !important;
-    font-size: 1.68rem;
-    line-height: 1.25;
+    font-size: 1.58rem;
+    line-height: 1.22;
     color: var(--ink);
     font-weight: 800;
     letter-spacing: -0.03em;
-    margin-bottom: 1.1rem;
-    max-width: 32ch;
+    margin-bottom: 1rem;
+    max-width: 36ch;
 }
 
 .focus-footer {
@@ -1419,14 +1420,14 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     border: 1px solid var(--accent) !important;
     background: var(--accent) !important;
     color: #FFFFFF !important;
-    min-height: 3.28rem;
+    min-height: 3.18rem;
     font-size: 1.02rem;
     box-shadow: 0 14px 24px rgba(46, 15, 19, 0.18);
 }
 
 .stButton > button[kind="secondary"] {
     border: 1px solid rgba(74, 24, 34, 0.16) !important;
-    background: rgba(255,255,255,0.84) !important;
+    background: rgba(255,253,252,0.34) !important;
     color: var(--accent) !important;
     box-shadow: none !important;
 }
@@ -1435,13 +1436,15 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     border: 1px solid transparent !important;
     background: transparent !important;
     color: var(--ink-soft) !important;
-    min-height: 2rem;
+    min-height: 1.8rem;
     width: auto !important;
     margin-left: auto;
     padding-left: 0 !important;
     padding-right: 0 !important;
     box-shadow: none !important;
     border-radius: 0 !important;
+    font-size: 0.9rem;
+    font-weight: 700;
 }
 
 .stButton > button[kind="primary"] * {
@@ -1472,7 +1475,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
 
 .stButton > button[kind="secondary"]:hover {
     border-color: rgba(74, 24, 34, 0.28) !important;
-    background: rgba(255,255,255,0.98) !important;
+    background: rgba(255,255,255,0.72) !important;
 }
 
 .stButton > button[kind="tertiary"]:hover {
@@ -1592,12 +1595,12 @@ div[data-testid="stForm"] {
     }
 
     .hero-logo-img {
-        max-width: min(100%, 182px);
-        max-height: 90px;
+        max-width: min(100%, 170px);
+        max-height: 82px;
     }
 
     .hero-title {
-        font-size: 2.2rem;
+        font-size: 2.05rem;
     }
 
     .hero-subtitle {
@@ -1605,8 +1608,8 @@ div[data-testid="stForm"] {
     }
 
     .hero-logo-band {
-        min-height: 102px;
-        padding: 0.45rem 0.8rem 0.35rem 0.8rem;
+        min-height: 82px;
+        padding: 0.15rem 0.8rem 0.1rem 0.8rem;
     }
 
     .current-card,
@@ -1619,7 +1622,7 @@ div[data-testid="stForm"] {
     }
 
     .focus-text {
-        font-size: 1.26rem;
+        font-size: 1.18rem;
     }
 
     .progress-card-top,
@@ -1735,11 +1738,10 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
         '</div>'
     )
 
-    meta_col, logout_col = st.columns([6, 1.4], gap="small")
+    meta_col, logout_col = st.columns([7.2, 1], gap="small")
     with meta_col:
         st.markdown(profile_html, unsafe_allow_html=True)
     with logout_col:
-        st.markdown("<div style='height:0.55rem;'></div>", unsafe_allow_html=True)
         if st.button("Se déconnecter", use_container_width=True, type="tertiary"):
             st.session_state.logged_profile_slug = None
             st.rerun()
@@ -1781,7 +1783,7 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
     st.markdown(current_html, unsafe_allow_html=True)
 
     if progress["status"] in ["todo", "redo"]:
-        c_done, c_joker = st.columns(2, gap="small")
+        c_done, c_joker = st.columns([1.12, 1], gap="small")
         with c_done:
             if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True, type="primary"):
                 set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
