@@ -891,21 +891,28 @@ p, label, div, span {
 
 .hero-logo-band {
     width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(255,255,255,0.88));
     border: 1px solid rgba(167, 132, 99, 0.10);
     border-radius: 22px;
-    padding: 1rem 0 0.8rem 0;
+    padding: 1.15rem 1rem 1rem 1rem;
+    min-height: 168px;
     margin: 0 auto 1rem auto;
     box-shadow: 0 10px 24px rgba(30, 20, 10, 0.03);
+    overflow: visible;
 }
 
 .hero-logo-img {
     display: block;
     margin: 0 auto;
-    max-width: 120px;
-    width: 120px;
+    width: auto;
+    max-width: min(100%, 250px);
+    max-height: 118px;
     height: auto;
-    mix-blend-mode: multiply;
+    object-fit: contain;
+    object-position: center center;
 }
 
 .hero-kicker {
@@ -1492,8 +1499,8 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     }
 
     .hero-logo-img {
-        max-width: 98px;
-        width: 98px;
+        max-width: min(100%, 190px);
+        max-height: 96px;
     }
 
     .hero-title {
