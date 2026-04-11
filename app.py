@@ -13,7 +13,7 @@ from supabase import create_client
 st.set_page_config(
     page_title="Prométhée — Défis",
     page_icon="🐺",
-    layout="centered",
+    layout="wide",
 )
 
 # ---------------------------------------------------
@@ -888,9 +888,18 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="st
     overflow-x: hidden;
 }
 
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+#MainMenu,
+footer {
+    display: none !important;
+}
+
 .block-container {
-    max-width: 980px;
-    padding-top: 1.15rem;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding-top: 0.45rem;
     padding-bottom: 2.2rem;
 }
 
@@ -1555,12 +1564,51 @@ div[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
     font-family: 'Plus Jakarta Sans', sans-serif !important;
 }
 
+.stRadio > label {
+    font-size: 0.92rem !important;
+    font-weight: 600 !important;
+    color: var(--ink-soft) !important;
+    margin-bottom: 0.3rem !important;
+}
+
+div[data-testid="stRadio"] {
+    margin-bottom: 1.3rem;
+}
+
+div[data-testid="stRadio"] label[data-baseweb="radio"] {
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(217, 196, 186, 0.72);
+    border-radius: 999px;
+    padding: 0.46rem 0.9rem 0.46rem 0.72rem;
+}
+
 div[data-testid="stForm"] {
     background: var(--surface-strong);
     border: 1px solid var(--line);
     border-radius: 20px;
-    padding: 1.05rem 1.05rem 0.35rem 1.05rem;
+    padding: 1.15rem 1.15rem 0.45rem 1.15rem;
     box-shadow: 0 20px 36px rgba(54, 25, 31, 0.035);
+}
+
+.stTextInput > label,
+.stTextArea > label,
+.stNumberInput > label,
+.stSelectbox > label {
+    font-size: 0.86rem !important;
+    font-weight: 700 !important;
+    color: var(--ink) !important;
+}
+
+.stTextInput > div > div > input,
+.stNumberInput input {
+    min-height: 3rem !important;
+}
+
+.stTextInput > div > div > input:focus,
+.stTextArea textarea:focus,
+.stNumberInput input:focus {
+    border-color: rgba(74, 24, 34, 0.34) !important;
+    box-shadow: 0 0 0 1px rgba(74, 24, 34, 0.14) !important;
 }
 
 @media (max-width: 768px) {
@@ -1813,10 +1861,9 @@ def render_master_list(items, progress):
 
 
 def render_user_area():
-    st.subheader("Espace personnel")
-
     profiles = get_profiles()
     if not profiles:
+        st.subheader("Espace personnel")
         st.warning("Aucun profil.")
         return
 
@@ -1829,21 +1876,26 @@ def render_user_area():
         st.session_state.logged_profile_slug = None
 
     if st.session_state.logged_profile_slug is None:
-        with st.form("user_login_form"):
-            pseudo = st.text_input("Pseudo")
-            pin = st.text_input("Code PIN", type="password")
-            submitted = st.form_submit_button("Entrer", use_container_width=True)
+        _, form_col, _ = st.columns([1.05, 1.65, 1.05], gap="large")
+        with form_col:
+            st.subheader("Espace personnel")
+            with st.form("user_login_form"):
+                pseudo = st.text_input("Pseudo")
+                pin = st.text_input("Code PIN", type="password")
+                submitted = st.form_submit_button("Entrer", use_container_width=True, type="primary")
 
         if submitted:
-            profile = find_profile_by_login_input(pseudo, profiles)
-            if profile is not None and verify_pin(pin, profile["pin"]):
-                maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
-                st.session_state.logged_profile_slug = profile["slug"]
-                st.rerun()
-            else:
-                st.error("Identifiants incorrects.")
+            with form_col:
+                profile = find_profile_by_login_input(pseudo, profiles)
+                if profile is not None and verify_pin(pin, profile["pin"]):
+                    maybe_upgrade_profile_pin(profile["slug"], pin, profile["pin"])
+                    st.session_state.logged_profile_slug = profile["slug"]
+                    st.rerun()
+                else:
+                    st.error("Identifiants incorrects.")
         return
 
+    st.subheader("Espace personnel")
     profile = profiles_map[st.session_state.logged_profile_slug]
     current_item, progress, items = current_challenge(profile["slug"])
     completed_count = get_completed_count(profile["slug"])
@@ -1856,21 +1908,24 @@ def render_user_area():
 
 
 def render_admin_area():
-    st.subheader("Espace admin")
-
     if not st.session_state.admin_ok:
-        with st.form("admin_login_form"):
-            password = st.text_input("Mot de passe admin", type="password")
-            submitted = st.form_submit_button("Connexion admin", use_container_width=True)
+        _, form_col, _ = st.columns([1.05, 1.65, 1.05], gap="large")
+        with form_col:
+            st.subheader("Espace admin")
+            with st.form("admin_login_form"):
+                password = st.text_input("Mot de passe admin", type="password")
+                submitted = st.form_submit_button("Connexion admin", use_container_width=True, type="primary")
 
         if submitted:
-            if password == ADMIN_PASSWORD:
-                st.session_state.admin_ok = True
-                st.rerun()
-            else:
-                st.error("Mot de passe incorrect.")
+            with form_col:
+                if password == ADMIN_PASSWORD:
+                    st.session_state.admin_ok = True
+                    st.rerun()
+                else:
+                    st.error("Mot de passe incorrect.")
         return
 
+    st.subheader("Espace admin")
     top1, _ = st.columns([1, 4])
     with top1:
         if st.button("Quitter", use_container_width=True):
@@ -2168,7 +2223,9 @@ def render_admin_area():
 # APP
 # ---------------------------------------------------
 show_header()
-mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
+_, mode_col, _ = st.columns([1.05, 1.2, 1.05], gap="large")
+with mode_col:
+    mode = st.radio("Choisir un espace", ["Personnel", "Admin"], horizontal=True)
 
 if mode == "Personnel":
     render_user_area()
