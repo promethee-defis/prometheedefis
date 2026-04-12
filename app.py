@@ -1347,6 +1347,22 @@ p, label, div, span {
     font-family: 'Plus Jakarta Sans', sans-serif !important;
 }
 
+span.material-symbols-rounded,
+span.material-icons,
+i.material-icons,
+[class*="material-symbols"] {
+    font-family: "Material Symbols Rounded" !important;
+    font-weight: normal !important;
+    font-style: normal !important;
+    line-height: 1 !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    white-space: nowrap !important;
+    word-wrap: normal !important;
+    direction: ltr !important;
+    -webkit-font-smoothing: antialiased;
+}
+
 h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     font-family: 'Outfit', sans-serif !important;
 }
@@ -1892,6 +1908,7 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     border-radius: 0 !important;
     font-size: 0.9rem;
     font-weight: 700;
+    white-space: nowrap !important;
 }
 
 .stButton > button[kind="primary"] * {
@@ -1956,6 +1973,10 @@ section[data-testid="stFileUploaderDropzone"] {
     border: 1px dashed rgba(74, 24, 34, 0.24) !important;
     border-radius: 16px !important;
     padding: 0.85rem !important;
+}
+
+section[data-testid="stFileUploaderDropzone"] > div {
+    gap: 0.55rem !important;
 }
 
 section[data-testid="stFileUploaderDropzone"] button {
@@ -2434,7 +2455,7 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
         '</div>'
     )
 
-    meta_col, logout_col = st.columns([7.2, 1], gap="small")
+    meta_col, logout_col = st.columns([6.7, 1.55], gap="small")
     with meta_col:
         st.markdown(profile_html, unsafe_allow_html=True)
     with logout_col:
