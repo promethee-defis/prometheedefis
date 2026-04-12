@@ -2423,6 +2423,104 @@ div[data-testid="stFormSubmitButton"] > button:hover,
         width: 100%;
     }
 }
+
+@media (max-width: 640px) {
+    .block-container {
+        padding-top: 0.35rem;
+        padding-bottom: 1rem;
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+    }
+
+    .profile-strip,
+    .focus-card,
+    .progress-card,
+    .challenge-shell {
+        border-radius: 14px;
+    }
+
+    .profile-strip-name {
+        font-size: 1.04rem;
+    }
+
+    .profile-strip-rank {
+        font-size: 0.66rem;
+        letter-spacing: 0.18em;
+    }
+
+    .profile-strip-meta {
+        font-size: 0.84rem;
+        line-height: 1.42;
+    }
+
+    .focus-title-wrap {
+        gap: 0.5rem;
+    }
+
+    .focus-title {
+        font-size: 0.94rem;
+    }
+
+    .focus-position {
+        width: 100%;
+        font-size: 0.66rem;
+        letter-spacing: 0.12em;
+    }
+
+    .focus-text {
+        font-size: 0.98rem;
+        line-height: 1.34;
+        margin-bottom: 0.82rem;
+    }
+
+    .focus-footer {
+        gap: 0.42rem;
+    }
+
+    .status-chip,
+    .current-category-chip {
+        font-size: 0.72rem;
+    }
+
+    .stButton > button[kind="tertiary"] {
+        width: 100% !important;
+        margin-left: 0 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        min-height: 2.35rem !important;
+        padding-left: 0.1rem !important;
+    }
+
+    .upload-label {
+        font-size: 0.84rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .upload-help {
+        font-size: 0.78rem;
+        margin-bottom: 0.45rem;
+    }
+
+    div[data-testid="stFileUploader"] {
+        margin-top: 0.55rem;
+        margin-bottom: 0.6rem;
+        padding: 0.64rem 0.64rem 0.4rem 0.64rem;
+    }
+
+    section[data-testid="stFileUploaderDropzone"] {
+        padding: 0.62rem !important;
+    }
+
+    section[data-testid="stFileUploaderDropzone"] button {
+        min-height: 2.6rem !important;
+    }
+
+    div[data-testid="stFileUploader"] small,
+    div[data-testid="stFileUploader"] span,
+    div[data-testid="stFileUploader"] p {
+        font-size: 0.76rem !important;
+    }
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -2751,7 +2849,7 @@ def render_admin_area():
                 persist_admin_session()
                 st.rerun()
             else:
-                st.error("Mot de passe incorrect.")
+                st.error("Pas ici, petite insolente.")
         return
 
     st.subheader("Espace admin")
