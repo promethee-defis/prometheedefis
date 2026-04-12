@@ -65,6 +65,7 @@ STATUS_LABELS = {
 
 GLOBAL_STATE_KEY = "__GLOBAL__"
 GLOBAL_COMPLETED_KEY = "__GLOBAL_COMPLETED__"
+GLOBAL_SKIPPED_PREFIX = "__GLOBAL_SKIPPED__:"
 PROFILE_SESSION_PARAM = "ps"
 ADMIN_SESSION_PARAM = "as"
 AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
@@ -489,6 +490,58 @@ def get_global_state(profile_slug: str):
 
 def set_global_state(profile_slug: str, challenge_index: int, status: str):
     set_meta_progress_row(profile_slug, GLOBAL_STATE_KEY, challenge_index, status)
+
+
+def get_skipped_challenge_ids(profile_slug: str) -> set[int]:
+    try:
+        rows = (
+            supabase.table("progress")
+            .select("challenge_index")
+            .eq("profile_slug", profile_slug)
+            .like("category", f"{GLOBAL_SKIPPED_PREFIX}%")
+            .execute()
+            .data
+        ) or []
+    except Exception:
+        rows = []
+
+    skipped_ids = set()
+    for row in rows:
+        try:
+            skipped_ids.add(int(row["challenge_index"]))
+        except Exception:
+            continue
+    return skipped_ids
+
+
+def mark_challenge_skipped(profile_slug: str, challenge_id: int):
+    key = f"{GLOBAL_SKIPPED_PREFIX}{int(challenge_id)}"
+    existing = (
+        supabase.table("progress")
+        .select("id")
+        .eq("profile_slug", profile_slug)
+        .eq("category", key)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+
+    if existing:
+        return
+
+    supabase.table("progress").insert(
+        {
+            "profile_slug": profile_slug,
+            "category": key,
+            "challenge_index": int(challenge_id),
+            "status": "joker",
+        }
+    ).execute()
+
+
+def clear_skipped_challenge(profile_slug: str, challenge_id: int):
+    key = f"{GLOBAL_SKIPPED_PREFIX}{int(challenge_id)}"
+    supabase.table("progress").delete().eq("profile_slug", profile_slug).eq("category", key).execute()
 
 
 def get_completed_count(profile_slug: str) -> int:
@@ -1066,17 +1119,65 @@ def get_stage_category(items, idx: int):
     return items[-1]["category"]
 
 
-def build_master_list(items, current_idx: int, status: str) -> str:
+def build_master_list(items, current_idx: int, status: str, skipped_challenge_ids: set[int] | None = None) -> str:
+    skipped_challenge_ids = skipped_challenge_ids or set()
     rows = ['<div class="challenge-progress-list">']
 
     for i, item in enumerate(items):
         category = item["category"]
+        challenge_id = int(item["id"])
         badge_bg = COLORS.get(category, "#D7C6B3")
         badge_text = CATEGORY_TEXT_COLORS.get(category, "#FFFFFF")
 
         if i < current_idx:
             row_class = "done"
             icon = "✓"
+            text_html = html_multiline(item["text"])
+        elif i == current_idx:
+            if status == "redo":
+                row_class = "redo"
+            elif status == "pending":
+                row_class = "pending"
+            else:
+                row_class = "current"
+            icon = str(i + 1)
+            text_html = html_multiline(item["text"])
+        else:
+            row_class = "locked"
+            icon = "•"
+            text_html = "Défi verrouillé — contenu masqué"
+
+        rows.append(
+            (
+                f'<div class="challenge-progress-row {row_class}">'
+                f'<div class="challenge-progress-index">{icon}</div>'
+                f'<div class="challenge-progress-category" style="background:{badge_bg}; color:{badge_text};">{html_text(category)}</div>'
+                f'<div class="challenge-progress-text">{text_html}</div>'
+                '</div>'
+            )
+        )
+
+    rows.append("</div>")
+    return "".join(rows)
+
+
+def build_master_list_final(items, current_idx: int, status: str, skipped_challenge_ids: set[int] | None = None) -> str:
+    skipped_challenge_ids = skipped_challenge_ids or set()
+    rows = ['<div class="challenge-progress-list">']
+
+    for i, item in enumerate(items):
+        category = item["category"]
+        challenge_id = int(item["id"])
+        badge_bg = COLORS.get(category, "#D7C6B3")
+        badge_text = CATEGORY_TEXT_COLORS.get(category, "#FFFFFF")
+
+        if i < current_idx:
+            if challenge_id in skipped_challenge_ids:
+                row_class = "skipped"
+                icon = "✦"
+            else:
+                row_class = "done"
+                icon = "✓"
             text_html = html_multiline(item["text"])
         elif i == current_idx:
             if status == "redo":
@@ -1614,6 +1715,17 @@ h1, h2, h3, .hero-title, .focus-title, .profile-strip-name {
     background: var(--success);
     color: #FFFFFF;
     border-color: var(--success);
+}
+
+.challenge-progress-row.skipped {
+    background: rgba(162, 85, 103, 0.07);
+    border-color: rgba(162, 85, 103, 0.22);
+}
+
+.challenge-progress-row.skipped .challenge-progress-index {
+    background: var(--accent-soft);
+    color: #FFFFFF;
+    border-color: var(--accent-soft);
 }
 
 .challenge-progress-row.current {
@@ -2895,16 +3007,18 @@ def render_current_challenge_final(profile: dict, current_item, progress, items,
         ):
             if get_challenge_feature_status()["submissions_table"]:
                 delete_submission(profile["slug"], challenge_id)
+            mark_challenge_skipped(profile["slug"], challenge_id)
             update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
             set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
             st.rerun()
 
 
-def render_master_list(items, progress):
+def render_master_list(items, progress, profile_slug: str):
+    skipped_challenge_ids = get_skipped_challenge_ids(profile_slug)
     title_html = (
         '<div class="challenge-shell">'
         '<div class="list-title">Parcours complet</div>'
-        f'{build_master_list(items, int(progress["challenge_index"]), progress["status"])}'
+        f'{build_master_list_final(items, int(progress["challenge_index"]), progress["status"], skipped_challenge_ids)}'
         '</div>'
     )
     st.markdown(title_html, unsafe_allow_html=True)
@@ -2952,7 +3066,7 @@ def render_user_area():
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
     render_user_progress_summary(items, progress, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
-    render_master_list(items, progress)
+    render_master_list(items, progress, profile["slug"])
 
 
 def render_admin_area():
