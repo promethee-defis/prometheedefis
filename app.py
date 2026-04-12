@@ -1979,6 +1979,19 @@ section[data-testid="stFileUploaderDropzone"] > div {
     gap: 0.55rem !important;
 }
 
+section[data-testid="stFileUploaderDropzone"] button [data-testid="stIconMaterial"],
+section[data-testid="stFileUploaderDropzone"] button .material-symbols-rounded,
+section[data-testid="stFileUploaderDropzone"] button .material-icons,
+section[data-testid="stFileUploaderDropzone"] button span[aria-hidden="true"] {
+    display: none !important;
+}
+
+section[data-testid="stFileUploaderDropzone"] button span,
+section[data-testid="stFileUploaderDropzone"] button div,
+section[data-testid="stFileUploaderDropzone"] button p {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+}
+
 section[data-testid="stFileUploaderDropzone"] button {
     border-radius: 12px !important;
 }
