@@ -10,6 +10,10 @@ from pathlib import Path
 
 import streamlit as st
 from supabase import create_client
+try:
+    from streamlit_sortables import sort_items
+except Exception:
+    sort_items = None
 
 st.set_page_config(
     page_title="Prométhée — Défis",
@@ -64,6 +68,8 @@ GLOBAL_COMPLETED_KEY = "__GLOBAL_COMPLETED__"
 PROFILE_SESSION_PARAM = "ps"
 ADMIN_SESSION_PARAM = "as"
 AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
+CHALLENGE_PROOF_BUCKET = "challenge-proofs"
+PROOF_MAX_SIZE_BYTES = 5 * 1024 * 1024
 
 
 def get_config_value(name: str, default=None):
@@ -132,6 +138,10 @@ def short_text(text: str, limit: int = 90) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def challenge_requires_photo(item: dict | None) -> bool:
+    return bool((item or {}).get("requires_photo", False))
 
 
 def html_text(text: str) -> str:
@@ -523,6 +533,249 @@ def restore_persistent_sessions():
 restore_persistent_sessions()
 
 
+def get_challenge_feature_status() -> dict[str, bool]:
+    status = {
+        "requires_photo_column": False,
+        "submissions_table": False,
+    }
+
+    try:
+        supabase.table("challenges").select("id, requires_photo").limit(1).execute()
+        status["requires_photo_column"] = True
+    except Exception:
+        pass
+
+    try:
+        supabase.table("challenge_submissions").select("id").limit(1).execute()
+        status["submissions_table"] = True
+    except Exception:
+        pass
+
+    return status
+
+
+def is_photo_feature_ready() -> bool:
+    status = get_challenge_feature_status()
+    return status["requires_photo_column"] and status["submissions_table"]
+
+
+def get_photo_feature_setup_message() -> str:
+    return (
+        "La preuve photo demande le script SQL `SUPABASE_SETUP_PHOTO_PROOFS.sql` dans le repo "
+        "avant de pouvoir être utilisée."
+    )
+
+
+def ensure_proof_bucket():
+    try:
+        supabase.storage.get_bucket(CHALLENGE_PROOF_BUCKET)
+        return True, None
+    except Exception:
+        pass
+
+    try:
+        supabase.storage.create_bucket(
+            CHALLENGE_PROOF_BUCKET,
+            options={
+                "public": False,
+                "allowed_mime_types": ["image/jpeg", "image/png", "image/webp"],
+                "file_size_limit": PROOF_MAX_SIZE_BYTES,
+            },
+        )
+        return True, None
+    except Exception as exc:
+        return False, (
+            "Bucket de preuves photo introuvable et création automatique impossible. "
+            f"Crée le bucket privé `{CHALLENGE_PROOF_BUCKET}` dans Supabase Storage. "
+            f"Détail: {exc}"
+        )
+
+
+def get_submission(profile_slug: str, challenge_id: int):
+    try:
+        data = (
+            supabase.table("challenge_submissions")
+            .select("*")
+            .eq("profile_slug", profile_slug)
+            .eq("challenge_id", challenge_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception:
+        return None
+
+    return data[0] if data else None
+
+
+def get_submissions_for_challenge(challenge_id: int):
+    try:
+        data = (
+            supabase.table("challenge_submissions")
+            .select("*")
+            .eq("challenge_id", challenge_id)
+            .execute()
+            .data
+        )
+        return data or []
+    except Exception:
+        return []
+
+
+def sanitize_file_extension(filename: str, mime_type: str | None = None) -> str:
+    ext = Path(str(filename or "")).suffix.lower().strip(".")
+    if ext in {"jpg", "jpeg", "png", "webp"}:
+        return "jpg" if ext == "jpeg" else ext
+
+    guessed = mimetypes.guess_extension(mime_type or "") or ""
+    guessed = guessed.lower().strip(".")
+    if guessed in {"jpg", "jpeg", "png", "webp"}:
+        return "jpg" if guessed == "jpeg" else guessed
+
+    return "jpg"
+
+
+def delete_proof_file(photo_path: str | None):
+    if not photo_path:
+        return
+
+    try:
+        supabase.storage.from_(CHALLENGE_PROOF_BUCKET).remove([photo_path])
+    except Exception:
+        pass
+
+
+def delete_submission(profile_slug: str, challenge_id: int):
+    submission = get_submission(profile_slug, challenge_id)
+    if submission:
+        delete_proof_file(submission.get("photo_path"))
+
+    try:
+        (
+            supabase.table("challenge_submissions")
+            .delete()
+            .eq("profile_slug", profile_slug)
+            .eq("challenge_id", challenge_id)
+            .execute()
+        )
+    except Exception:
+        pass
+
+
+def save_photo_submission(profile_slug: str, challenge_id: int, uploaded_file):
+    if not is_photo_feature_ready():
+        return False, get_photo_feature_setup_message()
+
+    ok, bucket_message = ensure_proof_bucket()
+    if not ok:
+        return False, bucket_message
+
+    if uploaded_file is None:
+        return False, "Choisis une photo avant d'envoyer la validation."
+
+    file_bytes = uploaded_file.getvalue()
+    if not file_bytes:
+        return False, "Le fichier est vide."
+
+    if len(file_bytes) > PROOF_MAX_SIZE_BYTES:
+        return False, "La photo dépasse la limite de 5 Mo."
+
+    extension = sanitize_file_extension(uploaded_file.name, getattr(uploaded_file, "type", None))
+    photo_path = f"{profile_slug}/challenge-{challenge_id}-{int(time.time() * 1000)}.{extension}"
+    existing_submission = get_submission(profile_slug, challenge_id)
+
+    if existing_submission:
+        delete_proof_file(existing_submission.get("photo_path"))
+
+    try:
+        supabase.storage.from_(CHALLENGE_PROOF_BUCKET).upload(photo_path, file_bytes)
+    except Exception as exc:
+        return False, f"Impossible d'envoyer la photo dans Storage : {exc}"
+
+    payload = {
+        "profile_slug": profile_slug,
+        "challenge_id": challenge_id,
+        "photo_path": photo_path,
+        "photo_filename": uploaded_file.name or Path(photo_path).name,
+        "photo_mime_type": getattr(uploaded_file, "type", None) or mimetypes.guess_type(photo_path)[0],
+    }
+
+    try:
+        if existing_submission:
+            (
+                supabase.table("challenge_submissions")
+                .update(payload)
+                .eq("id", existing_submission["id"])
+                .execute()
+            )
+        else:
+            supabase.table("challenge_submissions").insert(payload).execute()
+    except Exception as exc:
+        delete_proof_file(photo_path)
+        return False, f"Impossible d'enregistrer la preuve photo : {exc}"
+
+    return True, "Preuve photo enregistrée."
+
+
+def download_submission_photo(submission: dict):
+    photo_path = submission.get("photo_path")
+    if not photo_path:
+        return None, "Chemin de photo introuvable."
+
+    try:
+        file_bytes = supabase.storage.from_(CHALLENGE_PROOF_BUCKET).download(photo_path)
+        return file_bytes, None
+    except Exception as exc:
+        return None, f"Impossible de récupérer la photo : {exc}"
+
+
+def preserve_progress_after_reorder(old_items: list[dict], new_items: list[dict]):
+    old_ids_by_index = [item["id"] for item in old_items]
+    new_index_by_id = {item["id"]: idx for idx, item in enumerate(new_items)}
+
+    for row in get_global_state_rows():
+        current_index = int(row["challenge_index"])
+        if current_index >= len(old_ids_by_index):
+            continue
+
+        current_challenge_id = old_ids_by_index[current_index]
+        new_index = new_index_by_id.get(current_challenge_id)
+        if new_index is None or new_index == current_index:
+            continue
+
+        (
+            supabase.table("progress")
+            .update({"challenge_index": new_index})
+            .eq("id", row["id"])
+            .execute()
+        )
+
+
+def save_challenge_order(category: str, ordered_ids: list[int]):
+    items = get_challenges(category)
+    current_ids = [item["id"] for item in items]
+    if sorted(current_ids) != sorted(ordered_ids):
+        return False, "La nouvelle liste ne correspond pas aux défis de cette catégorie."
+
+    old_items = get_challenges()
+    id_to_item = {item["id"]: item for item in items}
+
+    for index, challenge_id in enumerate(ordered_ids, start=1):
+        if id_to_item[challenge_id]["sort_order"] != index:
+            (
+                supabase.table("challenges")
+                .update({"sort_order": index})
+                .eq("id", challenge_id)
+                .execute()
+            )
+
+    clear_reference_caches()
+    new_items = get_challenges()
+    preserve_progress_after_reorder(old_items, new_items)
+    clear_reference_caches()
+    return True, "Ordre mis à jour."
+
+
 def current_challenge(profile_slug: str):
     progress = get_global_state(profile_slug)
     items = get_challenges()
@@ -597,6 +850,20 @@ def update_profile(slug: str, name: str, pin: str, jokers: int):
 
 
 def delete_profile(slug: str):
+    if get_challenge_feature_status()["submissions_table"]:
+        try:
+            submissions = (
+                supabase.table("challenge_submissions")
+                .select("challenge_id")
+                .eq("profile_slug", slug)
+                .execute()
+                .data
+            ) or []
+            for submission in submissions:
+                delete_submission(slug, int(submission["challenge_id"]))
+        except Exception:
+            pass
+
     supabase.table("progress").delete().eq("profile_slug", slug).execute()
     supabase.table("profiles").delete().eq("slug", slug).execute()
     clear_reference_caches()
@@ -606,7 +873,7 @@ def delete_profile(slug: str):
         clear_profile_session()
 
 
-def add_challenge(category: str, text: str):
+def add_challenge(category: str, text: str, requires_photo: bool = False):
     text = text.strip()
     if not text:
         return False, "Le texte est vide."
@@ -615,24 +882,38 @@ def add_challenge(category: str, text: str):
     previous_total = len(get_challenges())
     items = get_challenges(category)
     next_order = len(items) + 1
-    supabase.table("challenges").insert(
-        {
-            "category": category,
-            "sort_order": next_order,
-            "text": text,
-        }
-    ).execute()
+    payload = {
+        "category": category,
+        "sort_order": next_order,
+        "text": text,
+    }
+    feature_status = get_challenge_feature_status()
+    if requires_photo:
+        if not feature_status["requires_photo_column"]:
+            return False, get_photo_feature_setup_message()
+        payload["requires_photo"] = True
+    elif feature_status["requires_photo_column"]:
+        payload["requires_photo"] = False
+
+    supabase.table("challenges").insert(payload).execute()
     apply_insertion_progress_policy(insert_index, previous_total)
     clear_reference_caches()
     return True, "Défi ajouté."
 
 
-def update_challenge(challenge_id: int, text: str):
+def update_challenge(challenge_id: int, text: str, requires_photo: bool = False):
     text = text.strip()
     if not text:
         return False, "Le texte est vide."
 
-    supabase.table("challenges").update({"text": text}).eq("id", challenge_id).execute()
+    payload = {"text": text}
+    feature_status = get_challenge_feature_status()
+    if feature_status["requires_photo_column"]:
+        payload["requires_photo"] = bool(requires_photo)
+    elif requires_photo:
+        return False, get_photo_feature_setup_message()
+
+    supabase.table("challenges").update(payload).eq("id", challenge_id).execute()
     clear_reference_caches()
     return True, "Défi mis à jour."
 
@@ -641,6 +922,10 @@ def delete_challenge(challenge_id: int, category: str):
     global_index = get_global_challenge_index(challenge_id)
     if global_index is None:
         return False, "Défi introuvable."
+
+    if get_challenge_feature_status()["submissions_table"]:
+        for submission in get_submissions_for_challenge(challenge_id):
+            delete_submission(submission["profile_slug"], challenge_id)
 
     supabase.table("challenges").delete().eq("id", challenge_id).execute()
     clear_reference_caches()
@@ -2065,6 +2350,8 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
     chip_bg = COLORS[category]
     chip_text = CATEGORY_TEXT_COLORS[category]
     status_label = STATUS_LABELS.get(progress["status"], "À faire")
+    requires_photo = challenge_requires_photo(current_item)
+    photo_chip_html = '<div class="status-chip">Preuve photo requise</div>' if requires_photo else ""
 
     current_html = (
         '<div class="focus-card">'
@@ -2078,6 +2365,7 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
         f'<div class="focus-text">{html_multiline(current_item["text"])}</div>'
         '<div class="focus-footer">'
         f'<div class="status-chip">Statut : {html_text(status_label)}</div>'
+        f"{photo_chip_html}"
         '</div>'
         '</div>'
     )
@@ -2085,11 +2373,39 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
     st.markdown(current_html, unsafe_allow_html=True)
 
     if progress["status"] in ["todo", "redo"]:
+        challenge_id = int(current_item["id"])
         c_done, c_joker = st.columns([1.12, 1], gap="small")
-        with c_done:
-            if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True, type="primary"):
-                set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
-                st.rerun()
+
+        if requires_photo:
+            uploaded_file = st.file_uploader(
+                "Photo de preuve",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=False,
+                key=f"proof_{profile['slug']}_{challenge_id}",
+                help="Une photo est obligatoire pour envoyer ce défi en validation.",
+            )
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="Aperçu de la photo", use_container_width=True)
+
+            with c_done:
+                if st.button(
+                    "Envoyer la photo",
+                    key=f"submit_photo_{profile['slug']}_{challenge_id}",
+                    use_container_width=True,
+                    type="primary",
+                    disabled=uploaded_file is None,
+                ):
+                    ok, message = save_photo_submission(profile["slug"], challenge_id, uploaded_file)
+                    if ok:
+                        set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
+                        st.rerun()
+                    st.error(message)
+        else:
+            with c_done:
+                if st.button("✓ Fait", key=f"done_{profile['slug']}", use_container_width=True, type="primary"):
+                    set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
+                    st.rerun()
+
         with c_joker:
             disabled = int(profile["jokers"]) <= 0
             if st.button(
@@ -2099,6 +2415,8 @@ def render_current_challenge(profile: dict, current_item, progress, items, compl
                 disabled=disabled,
                 type="secondary",
             ):
+                if get_challenge_feature_status()["submissions_table"]:
+                    delete_submission(profile["slug"], challenge_id)
                 update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
                 set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
                 st.rerun()
@@ -2200,13 +2518,21 @@ def render_admin_area():
             idx = int(global_state["challenge_index"])
             if global_state["status"] == "pending" and idx < len(all_challenges):
                 current_item = all_challenges[idx]
+                submission = None
+                if challenge_requires_photo(current_item):
+                    submission = get_submission(profile["slug"], int(current_item["id"]))
+                    if submission is None:
+                        continue
                 pending_items.append(
                     {
                         "profile_slug": profile["slug"],
                         "profile_name": profile["name"],
                         "category": current_item["category"],
+                        "challenge_id": int(current_item["id"]),
                         "challenge_index": idx,
                         "text": current_item["text"],
+                        "requires_photo": challenge_requires_photo(current_item),
+                        "submission": submission,
                     }
                 )
 
@@ -2232,10 +2558,28 @@ def render_admin_area():
                     build_compact_row(
                         f'{item["profile_name"]} • {item["category"]}',
                         short_text(item["text"], 160),
-                        f'Défi {item["challenge_index"] + 1}/{len(all_challenges)}',
+                        (
+                            f'Défi {item["challenge_index"] + 1}/{len(all_challenges)} • '
+                            + ("Preuve photo jointe" if item["requires_photo"] else "Sans preuve photo")
+                        ),
                     ),
                     unsafe_allow_html=True,
                 )
+
+                if item["requires_photo"] and item["submission"] is not None:
+                    photo_bytes, photo_error = download_submission_photo(item["submission"])
+                    if photo_error:
+                        st.warning(photo_error)
+                    elif photo_bytes:
+                        st.image(photo_bytes, caption="Preuve photo", use_container_width=True)
+                        st.download_button(
+                            "Télécharger la photo",
+                            data=photo_bytes,
+                            file_name=item["submission"].get("photo_filename") or f"preuve-{item['challenge_id']}.jpg",
+                            mime=item["submission"].get("photo_mime_type") or "image/jpeg",
+                            key=f"download_{item['profile_slug']}_{item['challenge_id']}",
+                            use_container_width=True,
+                        )
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -2256,6 +2600,8 @@ def render_admin_area():
                             current_jokers = int(profiles_map[item["profile_slug"]]["jokers"])
                             update_jokers(item["profile_slug"], current_jokers + 1)
 
+                        if get_challenge_feature_status()["submissions_table"]:
+                            delete_submission(item["profile_slug"], item["challenge_id"])
                         st.rerun()
 
                 with c2:
@@ -2269,6 +2615,8 @@ def render_admin_area():
                             item["challenge_index"],
                             "redo",
                         )
+                        if get_challenge_feature_status()["submissions_table"]:
+                            delete_submission(item["profile_slug"], item["challenge_id"])
                         st.rerun()
 
     with tab3:
@@ -2283,14 +2631,26 @@ def render_admin_area():
 
         category = st.selectbox("Catégorie", CATEGORIES, key="admin_category")
         items = get_challenges(category)
+        feature_status = get_challenge_feature_status()
 
         st.markdown(
             build_panel_html("Nombre de défis", str(len(items)), "Dans cette catégorie"),
             unsafe_allow_html=True,
         )
 
-        st.markdown("### Ajouter un défi")
-        new_challenge = st.text_area("Texte", key=f"new_{category}", height=120)
+        if not is_photo_feature_ready():
+            st.info(get_photo_feature_setup_message())
+
+        st.markdown("### Nouveau défi")
+        with st.form(f"add_challenge_form_{category}"):
+            new_challenge = st.text_area("Texte", key=f"new_{category}", height=120)
+            new_requires_photo = st.checkbox(
+                "Preuve photo demandée",
+                key=f"new_requires_photo_{category}",
+                disabled=not feature_status["requires_photo_column"],
+            )
+            add_submitted = st.form_submit_button("Ajouter le défi", use_container_width=True)
+
         impacted_profiles = count_profiles_impacted_by_insert(
             get_category_insert_index(category),
             len(all_challenges),
@@ -2299,16 +2659,55 @@ def render_admin_area():
             st.info(
                 f"L'ajout dans cette catégorie renverra {impacted_profiles} profil(s) actif(s) vers ce nouveau défi."
             )
-        if st.button("Ajouter", key=f"add_{category}", use_container_width=True):
-            ok, message = add_challenge(category, new_challenge)
+        if add_submitted:
+            ok, message = add_challenge(category, new_challenge, new_requires_photo)
             if ok:
                 st.success(message)
                 st.rerun()
             else:
                 st.error(message)
 
-        st.markdown("### Modifier un défi existant")
+        st.markdown("### Classement des défis")
 
+        if not items:
+            st.info("Aucun défi dans cette catégorie.")
+        else:
+            if sort_items is None:
+                st.warning("Le drag-and-drop sera actif après installation de `streamlit-sortables`.")
+            else:
+                sortable_style = """
+                .sortable-component { background: transparent; padding: 0; }
+                .sortable-container { background: transparent; padding: 0; }
+                .sortable-container-header { display: none; }
+                .sortable-container-body { background: transparent; padding: 0; }
+                .sortable-item, .sortable-item:hover {
+                    background: rgba(255,255,255,0.94);
+                    border: 1px solid #E7D9D0;
+                    border-radius: 14px;
+                    padding: 0.8rem 0.9rem;
+                    color: #2A1318;
+                    font-weight: 600;
+                    margin-bottom: 0.45rem;
+                    box-shadow: 0 10px 22px rgba(54, 25, 31, 0.03);
+                }
+                """
+                sortable_labels = [
+                    f"{item['id']} • {'📷 ' if challenge_requires_photo(item) else ''}{short_text(item['text'], 95)}"
+                    for item in items
+                ]
+                sorted_labels = sort_items(sortable_labels, custom_style=sortable_style)
+                sorted_ids = [int(label.split(" • ", 1)[0]) for label in sorted_labels]
+                if sorted_ids != [item["id"] for item in items]:
+                    st.caption("Le nouvel ordre est prêt. Clique sur le bouton ci-dessous pour l'enregistrer.")
+                    if st.button("Enregistrer le nouvel ordre", key=f"save_order_{category}", use_container_width=True):
+                        ok, message = save_challenge_order(category, sorted_ids)
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+        st.markdown("### Modifier un défi")
         if not items:
             st.info("Aucun défi dans cette catégorie.")
         else:
@@ -2326,7 +2725,7 @@ def render_admin_area():
                     "Défi",
                     options=[item["id"] for item in filtered_items],
                     format_func=lambda challenge_id: next(
-                        f"{i + 1}. {short_text(item['text'], 80)}"
+                        f"{i + 1}. {'[Photo] ' if challenge_requires_photo(item) else ''}{short_text(item['text'], 90)}"
                         for i, item in enumerate(filtered_items)
                         if item["id"] == challenge_id
                     ),
@@ -2348,11 +2747,17 @@ def render_admin_area():
                     key=f"edit_text_{category}_{selected_id}",
                     height=180,
                 )
+                edited_requires_photo = st.checkbox(
+                    "Preuve photo demandée",
+                    value=challenge_requires_photo(selected_item),
+                    key=f"edit_requires_photo_{category}_{selected_id}",
+                    disabled=not feature_status["requires_photo_column"],
+                )
 
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
-                        ok, message = update_challenge(selected_item["id"], edited_text)
+                        ok, message = update_challenge(selected_item["id"], edited_text, edited_requires_photo)
                         if ok:
                             st.success(message)
                             st.rerun()
@@ -2361,24 +2766,6 @@ def render_admin_area():
                 with c2:
                     if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
                         ok, message = delete_challenge(selected_item["id"], category)
-                        if ok:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
-
-                c3, c4 = st.columns(2)
-                with c3:
-                    if st.button("Monter", key=f"up_{category}", use_container_width=True):
-                        ok, message = swap_challenge_order(category, selected_item["id"], "up")
-                        if ok:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
-                with c4:
-                    if st.button("Descendre", key=f"down_{category}", use_container_width=True):
-                        ok, message = swap_challenge_order(category, selected_item["id"], "down")
                         if ok:
                             st.success(message)
                             st.rerun()
