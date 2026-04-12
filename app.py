@@ -570,8 +570,8 @@ def is_photo_feature_ready() -> bool:
 
 def get_photo_feature_setup_message() -> str:
     return (
-        "La preuve photo demande le script SQL `SUPABASE_SETUP_PHOTO_PROOFS.sql` dans le repo "
-        "avant de pouvoir être utilisée."
+        "La case `Photo demandée` reste bloquée tant que le script SQL "
+        "`SUPABASE_SETUP_PHOTO_PROOFS.sql` n'a pas été exécuté dans Supabase."
     )
 
 
@@ -2657,7 +2657,7 @@ def render_admin_area():
     with tab3:
         category = st.selectbox("Catégorie", CATEGORIES, key="admin_category")
         items = get_challenges(category)
-        feature_status = get_challenge_feature_status()
+        photo_feature_ready = is_photo_feature_ready()
         all_positions = get_global_position_map(all_challenges)
 
         range_text = "Aucun défi dans cette catégorie"
@@ -2678,7 +2678,7 @@ def render_admin_area():
                 unsafe_allow_html=True,
             )
 
-        if not is_photo_feature_ready():
+        if not photo_feature_ready:
             st.info(get_photo_feature_setup_message())
 
         st.markdown("### Nouveau défi")
@@ -2687,7 +2687,7 @@ def render_admin_area():
             new_requires_photo = st.checkbox(
                 "Preuve photo demandée",
                 key=f"new_requires_photo_{category}",
-                disabled=not feature_status["requires_photo_column"],
+                disabled=not photo_feature_ready,
             )
             add_submitted = st.form_submit_button("Ajouter le défi", use_container_width=True)
 
@@ -2767,26 +2767,21 @@ def render_admin_area():
                 challenge_id = int(item["id"])
                 global_position = all_positions.get(challenge_id, 0)
                 assigned_profiles = count_profiles_on_challenge(challenge_id)
-                meta_bits = [f"Défi {global_position}/{len(all_challenges)}"]
+                meta_bits = [f"{global_position}/{len(all_challenges)}"]
                 if assigned_profiles:
                     meta_bits.append(f"{assigned_profiles} profil(s) dessus")
                 if challenge_requires_photo(item):
                     meta_bits.append("Photo demandée")
 
-                st.markdown(
-                    build_compact_row(
-                        f"{category} • #{global_position}",
-                        short_text(item["text"], 160),
-                        " • ".join(meta_bits),
-                    ),
-                    unsafe_allow_html=True,
-                )
+                st.caption(f"{category} • " + " • ".join(meta_bits))
 
                 edited_text = st.text_area(
                     f"Texte du défi {global_position}",
                     value=item["text"],
                     key=f"inline_text_{challenge_id}",
                     height=120,
+                    label_visibility="collapsed",
+                    placeholder="Texte du défi",
                 )
 
                 controls_col1, controls_col2, controls_col3, controls_col4 = st.columns(
@@ -2805,8 +2800,10 @@ def render_admin_area():
                         "Photo demandée",
                         value=challenge_requires_photo(item),
                         key=f"inline_photo_{challenge_id}",
-                        disabled=not feature_status["requires_photo_column"],
+                        disabled=not photo_feature_ready,
                     )
+                    if not photo_feature_ready:
+                        st.caption("Active d'abord le script SQL Supabase.")
                 with controls_col3:
                     save_clicked = st.button(
                         "Enregistrer",
