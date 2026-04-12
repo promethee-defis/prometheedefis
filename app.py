@@ -2781,6 +2781,125 @@ def render_current_challenge_clean(profile: dict, current_item, progress, items,
                 st.rerun()
 
 
+def render_current_challenge_final(profile: dict, current_item, progress, items, completed_count: int):
+    current_category = get_stage_category(items, int(progress["challenge_index"]))
+    collar_label = COLLAR_LABELS[current_category]
+    profile_html = (
+        '<div class="profile-strip">'
+        '<div class="profile-strip-top">'
+        f'<div class="profile-strip-name">{html_text(profile["name"])}</div>'
+        f'<div class="profile-strip-rank">{html_text(collar_label)}</div>'
+        '</div>'
+        f'<div class="profile-strip-meta">Jokers restants : {int(profile["jokers"])} &#8226; D\u00e9fis valid\u00e9s : {completed_count}</div>'
+        '</div>'
+    )
+
+    meta_col, logout_col = st.columns([6.7, 1.55], gap="small")
+    with meta_col:
+        st.markdown(profile_html, unsafe_allow_html=True)
+    with logout_col:
+        if st.button("Se d\u00e9connecter", use_container_width=True, type="tertiary"):
+            st.session_state.logged_profile_slug = None
+            clear_profile_session()
+            st.rerun()
+
+    if current_item is None:
+        current_html = (
+            '<div class="focus-card complete">'
+            '<div class="focus-top">'
+            '<div class="focus-title-wrap"><div class="focus-title">Parcours termin\u00e9</div></div>'
+            '<div class="status-chip">Termin\u00e9</div>'
+            '</div>'
+            '<div class="focus-text">Tous les d\u00e9fis visibles sont franchis.</div>'
+            '</div>'
+        )
+        st.markdown(current_html, unsafe_allow_html=True)
+        return
+
+    category = current_item["category"]
+    chip_bg = COLORS[category]
+    chip_text = CATEGORY_TEXT_COLORS[category]
+    status_label = STATUS_LABELS.get(progress["status"], "\u00c0 faire")
+    requires_photo = challenge_requires_photo(current_item)
+    photo_chip_html = '<div class="status-chip">Preuve photo requise</div>' if requires_photo else ""
+
+    current_html = (
+        '<div class="focus-card">'
+        '<div class="focus-top">'
+        '<div class="focus-title-wrap">'
+        f'<div class="current-category-chip" style="background:{chip_bg}; color:{chip_text};">{html_text(category)}</div>'
+        '<div class="focus-title">D\u00e9fi du moment</div>'
+        '</div>'
+        f'<div class="focus-position">D\u00e9fi {int(progress["challenge_index"]) + 1} sur {len(items)}</div>'
+        '</div>'
+        f'<div class="focus-text">{html_multiline(current_item["text"])}</div>'
+        '<div class="focus-footer">'
+        f'<div class="status-chip">Statut : {html_text(status_label)}</div>'
+        f"{photo_chip_html}"
+        '</div>'
+        '</div>'
+    )
+
+    st.markdown(current_html, unsafe_allow_html=True)
+
+    if progress["status"] not in ["todo", "redo"]:
+        return
+
+    challenge_id = int(current_item["id"])
+
+    if requires_photo:
+        st.markdown('<div class="upload-label">Photo de preuve</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="upload-help">Une photo est obligatoire pour envoyer ce d\u00e9fi en validation.</div>',
+            unsafe_allow_html=True,
+        )
+        uploaded_file = st.file_uploader(
+            "Photo de preuve",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=False,
+            key=f"proof_final_{profile['slug']}_{challenge_id}",
+            label_visibility="collapsed",
+        )
+        if uploaded_file is not None:
+            st.image(uploaded_file, caption="Aper\u00e7u de la photo", use_container_width=True)
+
+        c_done, c_joker = st.columns([1.12, 1], gap="small")
+        with c_done:
+            if st.button(
+                "Envoyer la photo",
+                key=f"submit_photo_final_{profile['slug']}_{challenge_id}",
+                use_container_width=True,
+                type="primary",
+                disabled=uploaded_file is None,
+            ):
+                ok, message = save_photo_submission(profile["slug"], challenge_id, uploaded_file)
+                if ok:
+                    set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
+                    st.rerun()
+                st.error(message)
+    else:
+        c_done, c_joker = st.columns([1.12, 1], gap="small")
+        with c_done:
+            if st.button("\u2713 Fait", key=f"done_final_{profile['slug']}", use_container_width=True, type="primary"):
+                set_global_state(profile["slug"], int(progress["challenge_index"]), "pending")
+                st.rerun()
+
+    with c_joker:
+        disabled = int(profile["jokers"]) <= 0
+        if st.button(
+            "\u2726 Utiliser un joker",
+            key=f"joker_final_{profile['slug']}",
+            use_container_width=True,
+            disabled=disabled,
+            type="secondary",
+        ):
+            if get_challenge_feature_status()["submissions_table"]:
+                delete_submission(profile["slug"], challenge_id)
+            update_jokers(profile["slug"], max(0, int(profile["jokers"]) - 1))
+            set_global_state(profile["slug"], int(progress["challenge_index"]) + 1, "todo")
+            st.rerun()
+
+
 def render_master_list(items, progress):
     title_html = (
         '<div class="challenge-shell">'
@@ -2829,7 +2948,7 @@ def render_user_area():
     current_item, progress, items = current_challenge(profile["slug"])
     completed_count = get_completed_count(profile["slug"])
 
-    render_current_challenge_clean(profile, current_item, progress, items, completed_count)
+    render_current_challenge_final(profile, current_item, progress, items, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
     render_user_progress_summary(items, progress, completed_count)
     st.markdown("<div style='height:0.45rem;'></div>", unsafe_allow_html=True)
