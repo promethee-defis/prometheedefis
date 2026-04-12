@@ -271,6 +271,15 @@ def get_global_challenge_index(challenge_id: int):
     return None
 
 
+def get_global_position_map(items: list[dict] | None = None) -> dict[int, int]:
+    if items is None:
+        items = get_challenges()
+    return {
+        int(item["id"]): index + 1
+        for index, item in enumerate(items)
+    }
+
+
 def get_category_insert_index(category: str) -> int:
     items = get_challenges()
     category_rank = CATEGORY_ORDER.get(category, 999)
@@ -901,10 +910,24 @@ def add_challenge(category: str, text: str, requires_photo: bool = False):
     return True, "Défi ajouté."
 
 
-def update_challenge(challenge_id: int, text: str, requires_photo: bool = False):
+def update_challenge(
+    challenge_id: int,
+    text: str,
+    requires_photo: bool = False,
+    category: str | None = None,
+):
     text = text.strip()
     if not text:
         return False, "Le texte est vide."
+
+    all_items = get_challenges()
+    current_item = next((item for item in all_items if int(item["id"]) == int(challenge_id)), None)
+    if current_item is None:
+        return False, "Défi introuvable."
+
+    current_category = current_item["category"]
+    target_category = category or current_category
+    category_changed = target_category != current_category
 
     payload = {"text": text}
     feature_status = get_challenge_feature_status()
@@ -913,7 +936,19 @@ def update_challenge(challenge_id: int, text: str, requires_photo: bool = False)
     elif requires_photo:
         return False, get_photo_feature_setup_message()
 
+    if category_changed:
+        payload["category"] = target_category
+        payload["sort_order"] = len(get_challenges(target_category)) + 1
+
     supabase.table("challenges").update(payload).eq("id", challenge_id).execute()
+
+    if category_changed:
+        clear_reference_caches()
+        normalize_sort_order(current_category)
+        normalize_sort_order(target_category)
+        clear_reference_caches()
+        preserve_progress_after_reorder(all_items, get_challenges())
+
     clear_reference_caches()
     return True, "Défi mis à jour."
 
@@ -2620,23 +2655,28 @@ def render_admin_area():
                         st.rerun()
 
     with tab3:
-        summary_columns = st.columns(len(CATEGORIES), gap="small")
-        for column, summary_category in zip(summary_columns, CATEGORIES):
-            challenge_total = len(get_challenges(summary_category))
-            with column:
-                st.markdown(
-                    build_panel_html(summary_category, str(challenge_total), "Défis disponibles"),
-                    unsafe_allow_html=True,
-                )
-
         category = st.selectbox("Catégorie", CATEGORIES, key="admin_category")
         items = get_challenges(category)
         feature_status = get_challenge_feature_status()
+        all_positions = get_global_position_map(all_challenges)
 
-        st.markdown(
-            build_panel_html("Nombre de défis", str(len(items)), "Dans cette catégorie"),
-            unsafe_allow_html=True,
-        )
+        range_text = "Aucun défi dans cette catégorie"
+        if items:
+            start_position = all_positions.get(int(items[0]["id"]), 1)
+            end_position = all_positions.get(int(items[-1]["id"]), start_position)
+            range_text = f"Défis {start_position} à {end_position} dans le parcours"
+
+        summary_col1, summary_col2 = st.columns(2, gap="small")
+        with summary_col1:
+            st.markdown(
+                build_panel_html(category, str(len(items)), range_text),
+                unsafe_allow_html=True,
+            )
+        with summary_col2:
+            st.markdown(
+                build_panel_html("Banque totale", str(len(all_challenges)), "Toutes catégories"),
+                unsafe_allow_html=True,
+            )
 
         if not is_photo_feature_ready():
             st.info(get_photo_feature_setup_message())
@@ -2650,6 +2690,8 @@ def render_admin_area():
                 disabled=not feature_status["requires_photo_column"],
             )
             add_submitted = st.form_submit_button("Ajouter le défi", use_container_width=True)
+
+        st.caption("Le nouveau défi est ajouté en fin de catégorie. Tu peux ensuite le replacer par glisser-déposer.")
 
         impacted_profiles = count_profiles_impacted_by_insert(
             get_category_insert_index(category),
@@ -2667,7 +2709,7 @@ def render_admin_area():
             else:
                 st.error(message)
 
-        st.markdown("### Classement des défis")
+        st.markdown("### Ordre dans la catégorie")
 
         if not items:
             st.info("Aucun défi dans cette catégorie.")
@@ -2691,13 +2733,18 @@ def render_admin_area():
                     box-shadow: 0 10px 22px rgba(54, 25, 31, 0.03);
                 }
                 """
-                sortable_labels = [
-                    f"{item['id']} • {'📷 ' if challenge_requires_photo(item) else ''}{short_text(item['text'], 95)}"
-                    for item in items
-                ]
+                sortable_labels = []
+                label_to_id = {}
+                for item in items:
+                    challenge_id = int(item["id"])
+                    photo_label = " • Photo" if challenge_requires_photo(item) else ""
+                    label = f"{all_positions.get(challenge_id, 0):02d} • {short_text(item['text'], 105)}{photo_label}"
+                    sortable_labels.append(label)
+                    label_to_id[label] = challenge_id
+
                 sorted_labels = sort_items(sortable_labels, custom_style=sortable_style)
-                sorted_ids = [int(label.split(" • ", 1)[0]) for label in sorted_labels]
-                if sorted_ids != [item["id"] for item in items]:
+                sorted_ids = [label_to_id[label] for label in sorted_labels if label in label_to_id]
+                if sorted_ids != [int(item["id"]) for item in items]:
                     st.caption("Le nouvel ordre est prêt. Clique sur le bouton ci-dessous pour l'enregistrer.")
                     if st.button("Enregistrer le nouvel ordre", key=f"save_order_{category}", use_container_width=True):
                         ok, message = save_challenge_order(category, sorted_ids)
@@ -2707,70 +2754,94 @@ def render_admin_area():
                         else:
                             st.error(message)
 
-        st.markdown("### Modifier un défi")
+        st.markdown("### Modifier les défis")
         if not items:
             st.info("Aucun défi dans cette catégorie.")
         else:
-            search_text = st.text_input("Recherche dans la catégorie", key=f"search_{category}")
-            filtered_items = [
-                item
-                for item in items
-                if search_text.strip().lower() in item["text"].lower()
-            ]
+            st.caption(
+                "Chaque ligne est modifiable directement. Tu peux changer le texte, demander une photo, "
+                "ou déplacer un défi vers une autre catégorie."
+            )
 
-            if not filtered_items:
-                st.info("Aucun défi ne correspond à la recherche.")
-            else:
-                selected_id = st.selectbox(
-                    "Défi",
-                    options=[item["id"] for item in filtered_items],
-                    format_func=lambda challenge_id: next(
-                        f"{i + 1}. {'[Photo] ' if challenge_requires_photo(item) else ''}{short_text(item['text'], 90)}"
-                        for i, item in enumerate(filtered_items)
-                        if item["id"] == challenge_id
-                    ),
-                    key=f"selected_{category}",
-                )
-
-                selected_item = next(item for item in items if item["id"] == selected_id)
-                assigned_profiles = count_profiles_on_challenge(selected_item["id"])
-
+            for item in items:
+                challenge_id = int(item["id"])
+                global_position = all_positions.get(challenge_id, 0)
+                assigned_profiles = count_profiles_on_challenge(challenge_id)
+                meta_bits = [f"Défi {global_position}/{len(all_challenges)}"]
                 if assigned_profiles:
-                    st.warning(
-                        f"{assigned_profiles} profil(s) sont actuellement positionnés sur ce défi. "
-                        "Supprimer reste possible, mais réordonner est bloqué pour éviter un changement silencieux de défi."
-                    )
+                    meta_bits.append(f"{assigned_profiles} profil(s) dessus")
+                if challenge_requires_photo(item):
+                    meta_bits.append("Photo demandée")
+
+                st.markdown(
+                    build_compact_row(
+                        f"{category} • #{global_position}",
+                        short_text(item["text"], 160),
+                        " • ".join(meta_bits),
+                    ),
+                    unsafe_allow_html=True,
+                )
 
                 edited_text = st.text_area(
-                    "Texte du défi",
-                    value=selected_item["text"],
-                    key=f"edit_text_{category}_{selected_id}",
-                    height=180,
-                )
-                edited_requires_photo = st.checkbox(
-                    "Preuve photo demandée",
-                    value=challenge_requires_photo(selected_item),
-                    key=f"edit_requires_photo_{category}_{selected_id}",
-                    disabled=not feature_status["requires_photo_column"],
+                    f"Texte du défi {global_position}",
+                    value=item["text"],
+                    key=f"inline_text_{challenge_id}",
+                    height=120,
                 )
 
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Enregistrer", key=f"save_{category}", use_container_width=True):
-                        ok, message = update_challenge(selected_item["id"], edited_text, edited_requires_photo)
-                        if ok:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
-                with c2:
-                    if st.button("Supprimer", key=f"delete_{category}", use_container_width=True):
-                        ok, message = delete_challenge(selected_item["id"], category)
-                        if ok:
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.error(message)
+                controls_col1, controls_col2, controls_col3, controls_col4 = st.columns(
+                    [1.25, 1.1, 0.95, 0.95],
+                    gap="small",
+                )
+                with controls_col1:
+                    edited_category = st.selectbox(
+                        "Catégorie",
+                        CATEGORIES,
+                        index=CATEGORIES.index(item["category"]),
+                        key=f"inline_category_{challenge_id}",
+                    )
+                with controls_col2:
+                    edited_requires_photo = st.checkbox(
+                        "Photo demandée",
+                        value=challenge_requires_photo(item),
+                        key=f"inline_photo_{challenge_id}",
+                        disabled=not feature_status["requires_photo_column"],
+                    )
+                with controls_col3:
+                    save_clicked = st.button(
+                        "Enregistrer",
+                        key=f"save_inline_{challenge_id}",
+                        use_container_width=True,
+                    )
+                with controls_col4:
+                    delete_clicked = st.button(
+                        "Supprimer",
+                        key=f"delete_inline_{challenge_id}",
+                        use_container_width=True,
+                    )
+
+                if save_clicked:
+                    ok, message = update_challenge(
+                        challenge_id,
+                        edited_text,
+                        edited_requires_photo,
+                        edited_category,
+                    )
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+                if delete_clicked:
+                    ok, message = delete_challenge(challenge_id, item["category"])
+                    if ok:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+                st.divider()
 
     with tab4:
         st.markdown(
